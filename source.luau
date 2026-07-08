@@ -2156,25 +2156,35 @@ function ColorPickerElement.new(section, config: ColorPickerConfig): ColorPicker
 			ZIndex = 1003,
 			Parent = row,
 		})
+
+		local fieldsHolder = Create("Frame", {
+			Size = UD2_N(1, -46, 1, 0),
+			Position = UD2_N(0, 46, 0, 0),
+			BackgroundTransparency = 1,
+			ZIndex = 1003,
+			Parent = row,
+		})
+
 		local boxes = {}
 		local count = #fields
-		local spacing = 4
-		local labelWidth = 42
-		for i, field in (fields) do
-			local w = (1 - (labelWidth / 260)) / count
+		local spacing = 2
+		for i, field in ipairs(fields) do
+			local w = 1 / count
 			local holder = Create("Frame", {
-				Size = UD2_N(w, -spacing, 1, 0),
-				Position = UD2_N((i - 1) * w, labelWidth + 4 + (i - 1) * spacing, 0, 0),
+				Size = UD2_N(w, i < count and -spacing or 0, 1, 0),
+				Position = UD2_N((i - 1) * w, 0, 0, 0),
 				BackgroundColor3 = COLORS.InputBg,
 				BorderSizePixel = 0,
 				ZIndex = 1003,
-				Parent = row,
+				Parent = fieldsHolder,
 			})
 			AddCorner(holder, 4)
 			local tb = Create("TextBox", {
-				Size = UD2_N(1, -8, 1, 0),
-				Position = UD2_N(0, 4, 0, 0),
-				BackgroundTransparency = 1,
+				Size = UD2_N(1, -4, 1, 0),
+				Position = UD2_N(0.5, 0, 0, 0),
+				AnchorPoint = Vector2.new(0.5, 0),
+				BackgroundTransparency = 0,
+				BackgroundColor3 = Color3.fromRGB(25, 25, 38),
 				Text = field.Default or "",
 				PlaceholderText = field.Placeholder or "",
 				PlaceholderColor3 = COLORS.TextMuted,
@@ -2184,6 +2194,12 @@ function ColorPickerElement.new(section, config: ColorPickerConfig): ColorPicker
 				ClearTextOnFocus = true,
 				ZIndex = 1004,
 				Parent = holder,
+			})
+			Create("UICorner", { CornerRadius = UDim.new(0, 4), Parent = tb })
+			Create("UIStroke", {
+				ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+				Color = Color3.fromRGB(50, 50, 70),
+				Parent = tb,
 			})
 			boxes[field.Name] = tb
 		end
