@@ -130,7 +130,6 @@ type SliderConfig = {
 	Decimals: number?,
 	ListOrder: number?,
 	Tooltip: string?,
-	SaveKey: string?,
 	Callback: ((number) -> ())?,
 }
 
@@ -147,7 +146,6 @@ type ToggleConfig = {
 	Default: boolean?,
 	ListOrder: number?,
 	Tooltip: string?,
-	SaveKey: string?,
 	Callback: ((boolean) -> ())?,
 }
 
@@ -182,7 +180,6 @@ type DropdownConfig = {
 	Searchable: boolean?,
 	ListOrder: number?,
 	Tooltip: string?,
-	SaveKey: string?,
 	Callback: ((string) -> ())?,
 }
 
@@ -206,7 +203,6 @@ type MultiSelectDropdownConfig = {
 	Searchable: boolean?,
 	ListOrder: number?,
 	Tooltip: string?,
-	SaveKey: string?,
 	Callback: (({ string }) -> ())?,
 }
 
@@ -228,7 +224,6 @@ type TextBoxConfig = {
 	PlaceHolder: string?,
 	ListOrder: number?,
 	Tooltip: string?,
-	SaveKey: string?,
 	Callback: ((string) -> ())?,
 }
 
@@ -248,7 +243,6 @@ type KeyInputConfig = {
 	Clearable: boolean?,
 	ListenForInputEnded: boolean?,
 	Tooltip: string?,
-	SaveKey: string?,
 	Callback: ((Enum.KeyCode?) -> ())?,
 	InputPressedCallback: ((Enum.KeyCode) -> ())?,
 }
@@ -273,7 +267,6 @@ type ColorPickerConfig = {
 	Default: Color3?,
 	ListOrder: number?,
 	Tooltip: string?,
-	SaveKey: string?,
 	Callback: ((Color3) -> ())?,
 }
 
@@ -370,8 +363,6 @@ type WindowObject = {
 	Toggle: (self: WindowObject) -> (),
 	Minimize: (self: WindowObject) -> (),
 	AttachVisibilityButton: (self: WindowObject, config: VisibilityButtonConfig) -> (),
-	Save: (self: WindowObject) -> string,
-	Load: (self: WindowObject, json: string) -> (),
 	Destroy: (self: WindowObject) -> (),
 }
 
@@ -3003,70 +2994,54 @@ end
 
 function Section:AddButton(config: ButtonConfig): ButtonElement
 	local element = ButtonElement.new(self, config)
-	element._SaveType = nil
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddSlider(config: SliderConfig): SliderElement
 	local element = SliderElement.new(self, config)
-	element._SaveType = "Slider"
-	element._SaveKey = config.SaveKey or config.Text
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddToggle(config: ToggleConfig): ToggleElement
 	local element = ToggleElement.new(self, config)
-	element._SaveType = "Toggle"
-	element._SaveKey = config.SaveKey or config.Text
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddLabel(config: LabelConfig): LabelElement
 	local element = LabelElement.new(self, config)
-	element._SaveType = nil
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddDropdown(config: DropdownConfig): DropdownElement
 	local element = DropdownElement.new(self, config)
-	element._SaveType = "Dropdown"
-	element._SaveKey = config.SaveKey or config.Text
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddMultiSelectDropdown(config: MultiSelectDropdownConfig): MultiSelectDropdownElement
 	local element = MultiSelectDropdownElement.new(self, config)
-	element._SaveType = "MultiSelectDropdown"
-	element._SaveKey = config.SaveKey or config.Text
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddTextBox(config: TextBoxConfig): TextBoxElement
 	local element = TextBoxElement.new(self, config)
-	element._SaveType = "TextBox"
-	element._SaveKey = config.SaveKey or config.Text
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddColorPicker(config: ColorPickerConfig): ColorPickerElement
 	local element = ColorPickerElement.new(self, config)
-	element._SaveType = "ColorPicker"
-	element._SaveKey = config.SaveKey or config.Text
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddKeybind(config: KeyInputConfig): KeyInputElement
 	local element = KeyInputElement.new(self, config)
-	element._SaveType = "Keybind"
-	element._SaveKey = config.SaveKey or config.Text
 	table.insert(self.Elements, element)
 	return element
 end
