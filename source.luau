@@ -1,11 +1,15 @@
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
+local TextService = game:GetService("TextService")
 
 local UD2_N = UDim2.new
 local C3_FRGB = Color3.fromRGB
 
 local Library = {}
+
+local ActiveWindows = {}
+local GlobalMaidList = {}
 
 local COLORS = {
 	Background = Color3.fromRGB(25, 25, 35),
@@ -105,6 +109,7 @@ type SectionConfig = {
 type ButtonConfig = {
 	Text: string?,
 	ListOrder: number?,
+	Tooltip: string?,
 	Callback: (() -> ())?,
 }
 
@@ -124,6 +129,8 @@ type SliderConfig = {
 	Increment: number?,
 	Decimals: number?,
 	ListOrder: number?,
+	Tooltip: string?,
+	SaveKey: string?,
 	Callback: ((number) -> ())?,
 }
 
@@ -139,6 +146,8 @@ type ToggleConfig = {
 	Text: string?,
 	Default: boolean?,
 	ListOrder: number?,
+	Tooltip: string?,
+	SaveKey: string?,
 	Callback: ((boolean) -> ())?,
 }
 
@@ -154,6 +163,7 @@ type ToggleElement = {
 type LabelConfig = {
 	Text: string?,
 	ListOrder: number?,
+	Tooltip: string?,
 }
 
 type LabelElement = {
@@ -168,8 +178,11 @@ type LabelElement = {
 type DropdownConfig = {
 	Text: string?,
 	Options: { string },
+	Default: string?,
 	Searchable: boolean?,
 	ListOrder: number?,
+	Tooltip: string?,
+	SaveKey: string?,
 	Callback: ((string) -> ())?,
 }
 
@@ -188,9 +201,12 @@ type DropdownElement = {
 type MultiSelectDropdownConfig = {
 	Text: string?,
 	Options: { string },
+	Default: ({ string } | string)?,
 	MaxSelected: number?,
 	Searchable: boolean?,
 	ListOrder: number?,
+	Tooltip: string?,
+	SaveKey: string?,
 	Callback: (({ string }) -> ())?,
 }
 
@@ -211,6 +227,8 @@ type TextBoxConfig = {
 	Text: string?,
 	PlaceHolder: string?,
 	ListOrder: number?,
+	Tooltip: string?,
+	SaveKey: string?,
 	Callback: ((string) -> ())?,
 }
 
@@ -229,6 +247,8 @@ type KeyInputConfig = {
 	ListOrder: number?,
 	Clearable: boolean?,
 	ListenForInputEnded: boolean?,
+	Tooltip: string?,
+	SaveKey: string?,
 	Callback: ((Enum.KeyCode?) -> ())?,
 	InputPressedCallback: ((Enum.KeyCode) -> ())?,
 }
@@ -252,6 +272,8 @@ type ColorPickerConfig = {
 	Text: string?,
 	Default: Color3?,
 	ListOrder: number?,
+	Tooltip: string?,
+	SaveKey: string?,
 	Callback: ((Color3) -> ())?,
 }
 
@@ -320,6 +342,7 @@ type WindowConfig = {
 	OverrideSize: boolean?,
 	Parent: ScreenGui?,
 	StartVisible: boolean?,
+	ToggleKeybind: Enum.KeyCode?,
 }
 
 type WindowObject = {
@@ -347,6 +370,8 @@ type WindowObject = {
 	Toggle: (self: WindowObject) -> (),
 	Minimize: (self: WindowObject) -> (),
 	AttachVisibilityButton: (self: WindowObject, config: VisibilityButtonConfig) -> (),
+	Save: (self: WindowObject) -> string,
+	Load: (self: WindowObject, json: string) -> (),
 	Destroy: (self: WindowObject) -> (),
 }
 
@@ -371,21 +396,38 @@ type NewAuthConfig = {
 }
 
 local function CalculateWindowSize()
-	local screenSize = workspace.CurrentCamera.ViewportSize
+	local Camera = workspace.CurrentCamera
+
+	repeat
+		task.wait()
+	until Camera and Camera.ViewportSize.Magnitude > 100
+
+	local screenSize = Camera.ViewportSize
 	local idealWidth = 460
 	local idealHeight = 520
+
 	if screenSize.X >= 1200 then
 		return UD2_N(0, idealWidth, 0, idealHeight)
 	end
+
 	local paddingX = 20
 	local paddingY = 40
+
 	local availableWidth = screenSize.X - paddingX
 	local availableHeight = screenSize.Y - paddingY
-	local scale = math.min(1, availableWidth / idealWidth, availableHeight / idealHeight)
+
+	local scale = math.min(
+		1,
+		availableWidth / idealWidth,
+		availableHeight / idealHeight
+	)
+
 	local width = math.max(math.floor(idealWidth * scale), 240)
 	local height = math.max(math.floor(idealHeight * scale), 240)
-	width = math.clamp(width, 240, availableWidth)
-	height = math.clamp(height, 240, availableHeight)
+
+	width = math.clamp(width, 240, math.max(availableWidth, 240))
+	height = math.clamp(height, 240, math.max(availableHeight, 240))
+
 	return UD2_N(0, width, 0, height)
 end
 
@@ -481,6 +523,166 @@ local function FormatNumber(value, decimals)
 	return string.format("%." .. decimals .. "f", value)
 end
 
+local function MeasureKeyWidth(text, minWidth, maxWidth, fontSize, horizontalPadding)
+	fontSize = fontSize or 12
+	horizontalPadding = horizontalPadding or 24
+	minWidth = minWidth or 50
+	maxWidth = maxWidth or 140
+	local ok, size = pcall(function()
+		return TextService:GetTextSize(
+			text or "None",
+			fontSize,
+			Enum.Font.GothamBold,
+			Vector2.new(1000, 100)
+		)
+	end)
+	local textWidth = ok and size.X or (#(text or "None") * (fontSize * 0.6))
+	local width = math.ceil(textWidth + horizontalPadding)
+	return math.clamp(width, minWidth, maxWidth)
+end
+
+
+local function EnsureTooltipGui(window)
+	if window._tooltipGui then
+		return window._tooltipGui
+	end
+
+	local tooltipGui = Create("Frame", {
+		Name = "TooltipHost",
+		Size = UD2_N(0, 0, 0, 0),
+		BackgroundColor3 = COLORS.DropdownBg,
+		BorderSizePixel = 0,
+		BackgroundTransparency = 1,
+		ZIndex = 5000,
+		Visible = false,
+		Parent = window.ScreenGui,
+	})
+	AddCorner(tooltipGui, 6)
+	local stroke = AddStroke(tooltipGui, COLORS.Border, 1)
+	stroke.Transparency = 1
+
+	local label = Create("TextLabel", {
+		Name = "TooltipLabel",
+		Size = UD2_N(1, -16, 1, -10),
+		Position = UD2_N(0, 8, 0, 5),
+		BackgroundTransparency = 1,
+		Text = "",
+		TextColor3 = COLORS.Text,
+		TextSize = 12,
+		Font = Enum.Font.GothamMedium,
+		TextWrapped = true,
+		ZIndex = 5001,
+		Parent = tooltipGui,
+	})
+
+	window._tooltipGui = tooltipGui
+	window._tooltipLabel = label
+	window._tooltipStroke = stroke
+	return tooltipGui
+end
+
+local function AttachTooltip(window, triggerFrame, text)
+	if not text or text == "" then return {} end
+
+	local connections = {}
+	local hovering = false
+	local shown = false
+	local hoverToken = 0
+
+	local MAX_WIDTH = 220
+	local PADDING_X = 16
+	local PADDING_Y = 10
+	local OFFSET = Vector2.new(14, 18)
+
+	local function positionTooltip(mousePos)
+		local gui = window._tooltipGui
+		if not gui then return end
+		local screenSize = window.ScreenGui.AbsoluteSize
+		local size = gui.AbsoluteSize
+		local x = mousePos.X + OFFSET.X
+		local y = mousePos.Y + OFFSET.Y
+		if x + size.X > screenSize.X - 6 then
+			x = mousePos.X - size.X - 10
+		end
+		if y + size.Y > screenSize.Y - 6 then
+			y = mousePos.Y - size.Y - 10
+		end
+		x = math.clamp(x, 6, math.max(6, screenSize.X - size.X - 6))
+		y = math.clamp(y, 6, math.max(6, screenSize.Y - size.Y - 6))
+		gui.Position = UD2_N(0, x, 0, y)
+	end
+
+	local function computeSize()
+		local ok, textSize = pcall(function()
+			return TextService:GetTextSize(text, 12, Enum.Font.GothamMedium, Vector2.new(MAX_WIDTH - PADDING_X, 1000))
+		end)
+		local w = ok and math.min(MAX_WIDTH, textSize.X + PADDING_X) or MAX_WIDTH
+		local h = ok and (textSize.Y + PADDING_Y) or 30
+		return w, h
+	end
+
+	local function showTooltip()
+		EnsureTooltipGui(window)
+		local gui = window._tooltipGui
+		local label = window._tooltipLabel
+		local stroke = window._tooltipStroke
+		label.Text = text
+		local w, h = computeSize()
+		gui.Size = UD2_N(0, w, 0, h)
+		gui.Visible = true
+		gui.BackgroundTransparency = 1
+		stroke.Transparency = 1
+		local mousePos = UserInputService:GetMouseLocation()
+		positionTooltip(mousePos)
+		shown = true
+		Tween(gui, 0.15, { BackgroundTransparency = 0.05 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		Tween(stroke, 0.15, { Transparency = 0.3 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	end
+
+	local function hideTooltip()
+		if not shown then return end
+		shown = false
+		local gui = window._tooltipGui
+		local stroke = window._tooltipStroke
+		if not gui then return end
+		local myToken = window._tooltipToken
+		Tween(gui, 0.12, { BackgroundTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		if stroke then
+			Tween(stroke, 0.12, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		end
+		task.delay(0.12, function()
+			if window._tooltipToken == myToken and not shown then
+				gui.Visible = false
+			end
+		end)
+	end
+
+	table.insert(connections, triggerFrame.MouseEnter:Connect(function()
+		hovering = true
+		window._tooltipToken += 1
+		local myToken = window._tooltipToken
+		task.delay(0.5, function()
+			if hovering and window._tooltipToken == myToken then
+				showTooltip()
+			end
+		end)
+	end))
+
+	table.insert(connections, triggerFrame.MouseLeave:Connect(function()
+		hovering = false
+		window._tooltipToken += 1
+		hideTooltip()
+	end))
+
+	table.insert(connections, triggerFrame.MouseMoved:Connect(function(x, y)
+		if shown then
+			positionTooltip(Vector2.new(x, y))
+		end
+	end))
+
+	return connections
+end
+
 local Maid = {}
 Maid.__index = Maid
 
@@ -493,9 +695,23 @@ function Maid:Add(item)
 	return item
 end
 
+function Maid:AddList(items)
+	for _, item in (items or {}) do
+		self:Add(item)
+	end
+end
+
 function Maid:Destroy()
 	for _, item in self._list do
 		if typeof(item) == "RBXScriptConnection" then
+			item:Disconnect()
+		elseif typeof(item) == "Instance" then
+			item:Destroy()
+		elseif typeof(item) == "function" then
+			local ok = pcall(item)
+			if not ok then
+			end
+		elseif typeof(item) == "table" and item.Disconnect then
 			item:Disconnect()
 		end
 	end
@@ -538,6 +754,10 @@ function ButtonElement.new(section, config: ButtonConfig): ButtonElement
 	self._maid:Add(btn.MouseButton1Up:Connect(function()
 		Tween(frame, 0.1, { Size = UD2_N(1, 0, 0, 36) })
 	end))
+
+	if config.Tooltip then
+		self._maid:AddList(AttachTooltip(section.Window, frame, config.Tooltip))
+	end
 
 	self.Frame = frame
 	self.Button = btn
@@ -676,12 +896,6 @@ function SliderElement.new(section, config: SliderConfig): SliderElement
 		end
 	end
 
-	-- Special-case handler for a NaN value: instead of letting NaN propagate into
-	-- clamp/lerp math (which breaks the fill bar and knob position), we grow the
-	-- knob to cover the entire track (fill bar included) as a visual indicator,
-	-- and keep the numeric value stored as NaN. Dragging or clicking the track
-	-- afterwards calls updateSlider normally, which clears isNaNState, shrinks
-	-- the knob back to its normal size, and resumes normal scaling.
 	local function setNaN()
 		isNaNState = true
 		currentValue = 0 / 0
@@ -701,7 +915,6 @@ function SliderElement.new(section, config: SliderConfig): SliderElement
 		if stroke then Tween(stroke, 0.2, { Color = COLORS.Border }) end
 		local num = tonumber(valueInput.Text)
 		if num ~= num then
-			-- tonumber("nan") produces NaN (NaN ~= NaN is always true in Lua)
 			setNaN()
 		elseif num then
 			num = math.clamp(num, min, max)
@@ -744,6 +957,10 @@ function SliderElement.new(section, config: SliderConfig): SliderElement
 		end
 	end))
 
+	if config.Tooltip then
+		self._maid:AddList(AttachTooltip(section.Window, frame, config.Tooltip))
+	end
+
 	self.Frame = frame
 	self._updateSlider = updateSlider
 	self._setNaN = setNaN
@@ -751,6 +968,9 @@ function SliderElement.new(section, config: SliderConfig): SliderElement
 	self._max = max
 	self._increment = increment
 	self._currentValue = function() return currentValue end
+	self._decimals = decimals
+	self._configText = config.Text
+	self._configCallback = config.Callback
 	return self
 end
 
@@ -761,7 +981,6 @@ end
 function SliderElement:SetValue(num: number)
 	if type(num) ~= "number" then return end
 	if num ~= num then
-		-- NaN passed in directly: cover the bar until the user drags/clicks it again
 		self._setNaN()
 		return
 	end
@@ -849,6 +1068,10 @@ function ToggleElement.new(section, config: ToggleConfig): ToggleElement
 		setState(not toggled)
 	end))
 
+	if config.Tooltip then
+		self._maid:AddList(AttachTooltip(section.Window, frame, config.Tooltip))
+	end
+
 	self.Frame = frame
 	self.Label = label
 	self._setState = setState
@@ -896,6 +1119,10 @@ function LabelElement.new(section, config: LabelConfig): LabelElement
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Parent = frame,
 	})
+
+	if config.Tooltip then
+		self._maid:AddList(AttachTooltip(section.Window, frame, config.Tooltip))
+	end
 
 	self.Frame = frame
 	self.Label = txt
@@ -1167,6 +1394,10 @@ function DropdownElement.new(section, config: DropdownConfig): DropdownElement
 		end
 	end))
 
+	if config.Tooltip then
+		self._maid:AddList(AttachTooltip(section.Window, frame, config.Tooltip))
+	end
+
 	self.Frame = frame
 	self.Label = label
 	self._options = options
@@ -1184,6 +1415,16 @@ function DropdownElement.new(section, config: DropdownConfig): DropdownElement
 	self._rebuildList = rebuildList
 	self._configText = config.Text
 	self._configCallback = config.Callback
+
+	if config.Default ~= nil then
+		for _, v in (options) do
+			if v == config.Default then
+				self:SetSelectedOption(config.Default)
+				break
+			end
+		end
+	end
+
 	return self
 end
 
@@ -1554,6 +1795,10 @@ function MultiSelectDropdownElement.new(section, config: MultiSelectDropdownConf
 		end
 	end))
 
+	if config.Tooltip then
+		self._maid:AddList(AttachTooltip(section.Window, frame, config.Tooltip))
+	end
+
 	self.Frame = frame
 	self.Label = label
 	self._options = options
@@ -1564,6 +1809,28 @@ function MultiSelectDropdownElement.new(section, config: MultiSelectDropdownConf
 	self._isSelected = isSelected
 	self._configText = config.Text
 	self._configCallback = config.Callback
+
+	if config.Default ~= nil then
+		local defaultList
+		if type(config.Default) == "table" then
+			defaultList = config.Default
+		else
+			defaultList = { config.Default }
+		end
+		local validDefaults = {}
+		for _, v in (defaultList) do
+			for _, opt in (options) do
+				if opt == v then
+					table.insert(validDefaults, v)
+					break
+				end
+			end
+		end
+		if #validDefaults > 0 then
+			self:SetSelected(validDefaults)
+		end
+	end
+
 	return self
 end
 
@@ -1770,8 +2037,13 @@ function TextBoxElement.new(section, config: TextBoxConfig): TextBoxElement
 		end
 	end))
 
+	if config.Tooltip then
+		self._maid:AddList(AttachTooltip(section.Window, frame, config.Tooltip))
+	end
+
 	self.Frame = frame
 	self.TextBox = textBox
+	self._configCallback = config.Callback
 	return self
 end
 
@@ -1781,6 +2053,9 @@ end
 
 function TextBoxElement:SetText(text: string)
 	self.TextBox.Text = text
+	if self._configCallback then
+		self._configCallback(text)
+	end
 end
 
 function TextBoxElement:GetText(): string
@@ -1824,9 +2099,13 @@ function KeyInputElement.new(section, config: KeyInputConfig): KeyInputElement
 
 	padding.PaddingLeft = UDim.new(0, 12)
 
+	local clearBtnWidth = self.Clearable and 20 or 0
+	local rightMargin = 6
+
 	local keyBtnHolder = Create("Frame", {
-		Size = UD2_N(0, 74, 0, 24),
-		Position = UD2_N(1, self.Clearable and -100 or -80, 0.5, -12),
+		Size = UD2_N(0, MeasureKeyWidth(self._currentKey and self._currentKey.Name or "None"), 0, 24),
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UD2_N(1, -(rightMargin + clearBtnWidth), 0.5, 0),
 		BackgroundColor3 = COLORS.InputBg,
 		BorderSizePixel = 0,
 		Parent = frame,
@@ -1846,9 +2125,16 @@ function KeyInputElement.new(section, config: KeyInputConfig): KeyInputElement
 	})
 	AddCorner(keyBtn, 6)
 
+	local function updateKeyWidth(key)
+		local displayText = key and key.Name or "None"
+		local newWidth = MeasureKeyWidth(displayText)
+		Tween(keyBtnHolder, 0.15, { Size = UD2_N(0, newWidth, 0, 24) }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	end
+
 	local function setKeyDisplay(key)
 		keyBtn.Text = key and key.Name or "None"
 		keyBtn.TextColor3 = key and COLORS.Accent or COLORS.TextMuted
+		updateKeyWidth(key)
 	end
 
 	local function stopListening()
@@ -1912,7 +2198,8 @@ function KeyInputElement.new(section, config: KeyInputConfig): KeyInputElement
 	if self.Clearable then
 		local clearBtn = Create("TextButton", {
 			Size = UD2_N(0, 18, 0, 18),
-			Position = UD2_N(1, -22, 0.5, -9),
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UD2_N(1, -rightMargin, 0.5, 0),
 			BackgroundTransparency = 1,
 			Text = "×",
 			TextColor3 = COLORS.TextMuted,
@@ -1938,6 +2225,10 @@ function KeyInputElement.new(section, config: KeyInputConfig): KeyInputElement
 				config.Callback(nil)
 			end
 		end))
+	end
+
+	if config.Tooltip then
+		self._maid:AddList(AttachTooltip(section.Window, frame, config.Tooltip))
 	end
 
 	self.Frame = frame
@@ -2509,6 +2800,10 @@ function ColorPickerElement.new(section, config: ColorPickerConfig): ColorPicker
 		end
 	end))
 
+	if config.Tooltip then
+		self._maid:AddList(AttachTooltip(window, mainRow, config.Tooltip))
+	end
+
 	self.Frame = frame
 	self.Preview = preview
 	self.Title = title
@@ -2518,6 +2813,8 @@ function ColorPickerElement.new(section, config: ColorPickerConfig): ColorPicker
 	self._pickerOpen = function() return pickerOpen end
 	self._setPickerOpen = function(val) pickerOpen = val end
 	self._getColor = function() return currentColor end
+	self._configText = config.Text
+	self._configCallback = config.Callback
 	self._setHSV = function(nh, ns, nv)
 		h = nh
 		s = ns
@@ -2706,54 +3003,70 @@ end
 
 function Section:AddButton(config: ButtonConfig): ButtonElement
 	local element = ButtonElement.new(self, config)
+	element._SaveType = nil
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddSlider(config: SliderConfig): SliderElement
 	local element = SliderElement.new(self, config)
+	element._SaveType = "Slider"
+	element._SaveKey = config.SaveKey or config.Text
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddToggle(config: ToggleConfig): ToggleElement
 	local element = ToggleElement.new(self, config)
+	element._SaveType = "Toggle"
+	element._SaveKey = config.SaveKey or config.Text
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddLabel(config: LabelConfig): LabelElement
 	local element = LabelElement.new(self, config)
+	element._SaveType = nil
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddDropdown(config: DropdownConfig): DropdownElement
 	local element = DropdownElement.new(self, config)
+	element._SaveType = "Dropdown"
+	element._SaveKey = config.SaveKey or config.Text
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddMultiSelectDropdown(config: MultiSelectDropdownConfig): MultiSelectDropdownElement
 	local element = MultiSelectDropdownElement.new(self, config)
+	element._SaveType = "MultiSelectDropdown"
+	element._SaveKey = config.SaveKey or config.Text
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddTextBox(config: TextBoxConfig): TextBoxElement
 	local element = TextBoxElement.new(self, config)
+	element._SaveType = "TextBox"
+	element._SaveKey = config.SaveKey or config.Text
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddColorPicker(config: ColorPickerConfig): ColorPickerElement
 	local element = ColorPickerElement.new(self, config)
+	element._SaveType = "ColorPicker"
+	element._SaveKey = config.SaveKey or config.Text
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddKeybind(config: KeyInputConfig): KeyInputElement
 	local element = KeyInputElement.new(self, config)
+	element._SaveType = "Keybind"
+	element._SaveKey = config.SaveKey or config.Text
 	table.insert(self.Elements, element)
 	return element
 end
@@ -2925,6 +3238,10 @@ function Window.new(config: WindowConfig): WindowObject
 	self._visibilityButtons = {}
 	self._currentColorPicker = nil
 	self.IsMinimized = false
+	self._tooltipGui = nil
+	self._tooltipLabel = nil
+	self._tooltipStroke = nil
+	self._tooltipToken = 0
 
 	local startVisible = true
 	if config.StartVisible ~= nil then
@@ -3053,6 +3370,101 @@ function Window.new(config: WindowConfig): WindowObject
 		self:Minimize()
 	end)
 
+	self._toggleKeybindHolder = nil
+	self._toggleKeybindBtn = nil
+	self._toggleKeybind = nil
+	if config.ToggleKeybind then
+		local initialKey = config.ToggleKeybind
+		local listeningForBind = false
+
+		local holderWidth = MeasureKeyWidth(initialKey.Name, 40, 110, 12, 20)
+
+		local toggleHolder = Create("Frame", {
+			Name = "ToggleKeybindHolder",
+			Size = UD2_N(0, holderWidth, 0, 24),
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UD2_N(1, -76, 0.5, 0),
+			BackgroundColor3 = COLORS.InputBg,
+			BorderSizePixel = 0,
+			Parent = self.TopBar,
+		})
+		AddCorner(toggleHolder, 6)
+		local toggleStroke = AddStroke(toggleHolder, COLORS.Border, 1)
+
+		local toggleBtn = Create("TextButton", {
+			Size = UD2_N(1, 0, 1, 0),
+			BackgroundTransparency = 1,
+			Text = initialKey.Name,
+			TextColor3 = COLORS.Accent,
+			TextSize = 12,
+			Font = Enum.Font.GothamBold,
+			AutoButtonColor = false,
+			Parent = toggleHolder,
+		})
+		AddCorner(toggleBtn, 6)
+
+		local function updateToggleWidth(key)
+			local newWidth = MeasureKeyWidth(key and key.Name or "None", 40, 110, 12, 20)
+			Tween(toggleHolder, 0.15, { Size = UD2_N(0, newWidth, 0, 24) }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		end
+
+		local function setToggleDisplay(key)
+			toggleBtn.Text = key and key.Name or "None"
+			toggleBtn.TextColor3 = key and COLORS.Accent or COLORS.TextMuted
+			updateToggleWidth(key)
+		end
+
+		local function stopListeningForBind()
+			listeningForBind = false
+			setToggleDisplay(self._toggleKeybind)
+			Tween(toggleHolder, 0.2, { BackgroundColor3 = COLORS.InputBg })
+			Tween(toggleStroke, 0.2, { Color = COLORS.Border })
+		end
+
+		local function startListeningForBind()
+			listeningForBind = true
+			toggleBtn.Text = "..."
+			toggleBtn.TextColor3 = COLORS.Text
+			Tween(toggleHolder, 0.2, { BackgroundColor3 = COLORS.ElementHover })
+			Tween(toggleStroke, 0.2, { Color = COLORS.Accent })
+		end
+
+		self._maid:Add(toggleBtn.MouseButton1Click:Connect(function()
+			if listeningForBind then
+				stopListeningForBind()
+			else
+				startListeningForBind()
+			end
+		end))
+
+		self._maid:Add(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+			if listeningForBind then
+				if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+				local key = input.KeyCode
+				if key == Enum.KeyCode.Escape then
+					stopListeningForBind()
+					return
+				end
+				if key == Enum.KeyCode.Unknown then return end
+				self._toggleKeybind = key
+				listeningForBind = false
+				stopListeningForBind()
+				return
+			end
+
+			if gameProcessed then return end
+			if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+			if not self._toggleKeybind then return end
+			if input.KeyCode ~= self._toggleKeybind then return end
+			self:SetVisible(not self:GetVisible())
+		end))
+
+		self._toggleKeybind = initialKey
+		self._toggleKeybindHolder = toggleHolder
+		self._toggleKeybindBtn = toggleBtn
+		self._setToggleKeybindDisplay = setToggleDisplay
+	end
+
 	self.TabBar = Create("Frame", {
 		Name = "TabBar",
 		Size = UD2_N(1, 0, 0, 40),
@@ -3160,6 +3572,8 @@ function Window.new(config: WindowConfig): WindowObject
 		self.MainFrame.GroupTransparency = 1
 	end
 
+	table.insert(ActiveWindows, self)
+
 	return self
 end
 
@@ -3176,11 +3590,30 @@ function Window:Minimize()
 end
 
 function Window:Destroy()
+	if self._currentColorPicker then
+		self._currentColorPicker:_Close()
+	end
+	if self._toggleKeybindHolder and self._toggleKeybindHolder.Parent then
+		self._toggleKeybindHolder:Destroy()
+	end
+	if self._tooltipGui and self._tooltipGui.Parent then
+		self._tooltipGui:Destroy()
+	end
 	for _, tab in self.Tabs do
 		tab:Destroy()
 	end
 	self._maid:Destroy()
-	self.ScreenGui:Destroy()
+	if not self.Parent and self.ScreenGui and self.ScreenGui.Parent then
+		self.ScreenGui:Destroy()
+	elseif self.MainFrame and self.MainFrame.Parent then
+		self.MainFrame:Destroy()
+	end
+	for i, w in (ActiveWindows) do
+		if w == self then
+			table.remove(ActiveWindows, i)
+			break
+		end
+	end
 end
 
 function Window:AddTab(config: TabConfig): TabObject
@@ -3233,6 +3666,10 @@ end
 
 function Window:Toggle()
 	self:SetVisible(not self.IsOpen)
+end
+
+function Window:GetVisible(): boolean
+	return self.IsOpen
 end
 
 function Window:AttachVisibilityButton(config: VisibilityButtonConfig)
@@ -3409,12 +3846,11 @@ function Library:NewAuth(config: NewAuthConfig)
 	local overlay = Create("Frame", {
 		Size = UD2_N(1, 0, 1, 0),
 		BackgroundColor3 = C3_FRGB(0, 0, 0),
-		BackgroundTransparency = 0,
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ZIndex = 1,
 		Parent = authGui,
 	})
-	Tween(overlay, 0.6, { BackgroundTransparency = 0.55 }, Enum.EasingStyle.Quint)
 
 	local cardW, cardH = 360, 192
 
@@ -3764,6 +4200,10 @@ function Library:NewAuth(config: NewAuthConfig)
 		end)
 	end)
 
+	task.defer(function()
+		Tween(overlay, 0.6, { BackgroundTransparency = 0.55 }, Enum.EasingStyle.Quint)
+	end)
+
 	Tween(card, 0.5, { Size = UD2_N(0, cardW, 0, cardH), GroupTransparency = 0 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
 	if freeze then
@@ -3806,6 +4246,55 @@ function Library:SetPresetColors(Colors: { Color3 })
 		return
 	end
 	PRESET_COLORS = Colors
+end
+
+function Library:Unload()
+	local windows = table.clone(ActiveWindows)
+	for _, window in (windows) do
+		local ok, err = pcall(function()
+			window:Destroy()
+		end)
+		if not ok then
+			warn("[Library:Unload] Failed to destroy a window:", err)
+		end
+	end
+	table.clear(ActiveWindows)
+
+	for _, item in (GlobalMaidList) do
+		if typeof(item) == "RBXScriptConnection" then
+			item:Disconnect()
+		elseif typeof(item) == "Instance" then
+			item:Destroy()
+		elseif typeof(item) == "function" then
+			pcall(item)
+		end
+	end
+	table.clear(GlobalMaidList)
+
+	local ok = pcall(function()
+		local player = Players.LocalPlayer
+		local playerGui = player and player:FindFirstChild("PlayerGui")
+		if playerGui then
+			local notifGui = playerGui:FindFirstChild("NotificationUI")
+			if notifGui then
+				notifGui:Destroy()
+			end
+		end
+	end)
+
+	table.clear(PRESET_COLORS)
+	for _, defaultColor in ipairs({
+		Color3.fromRGB(255, 0, 0), Color3.fromRGB(255, 85, 0), Color3.fromRGB(255, 170, 0),
+		Color3.fromRGB(255, 255, 0), Color3.fromRGB(170, 255, 0), Color3.fromRGB(85, 255, 0),
+		Color3.fromRGB(0, 255, 0), Color3.fromRGB(0, 255, 85), Color3.fromRGB(0, 255, 170),
+		Color3.fromRGB(0, 255, 255), Color3.fromRGB(0, 170, 255), Color3.fromRGB(0, 85, 255),
+		Color3.fromRGB(0, 0, 255), Color3.fromRGB(85, 0, 255), Color3.fromRGB(170, 0, 255),
+		Color3.fromRGB(255, 0, 255), Color3.fromRGB(255, 0, 170), Color3.fromRGB(255, 0, 85),
+		Color3.fromRGB(255, 255, 255), Color3.fromRGB(190, 190, 190), Color3.fromRGB(128, 128, 128),
+		Color3.fromRGB(64, 64, 64), Color3.fromRGB(32, 32, 32), Color3.fromRGB(0, 0, 0),
+		}) do
+		table.insert(PRESET_COLORS, defaultColor)
+	end
 end
 
 return Library
