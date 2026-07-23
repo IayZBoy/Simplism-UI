@@ -647,8 +647,9 @@ function SliderElement.new(section, config: SliderConfig): SliderElement
 	AddCorner(knob, 8)
 
 	Create("Frame", {
-		Size = UD2_N(0, 20, 0, 20),
-		Position = UD2_N(0.5, -10, 0.5, -10),
+		Size = UD2_N(1, 4, 1, 4),
+		Position = UD2_N(0.5, 0, 0.5, 0),
+		AnchorPoint = Vector2.new(0.5, 0.5),
 		BackgroundColor3 = COLORS.Accent,
 		BackgroundTransparency = 0.5,
 		BorderSizePixel = 0,
@@ -657,7 +658,10 @@ function SliderElement.new(section, config: SliderConfig): SliderElement
 	})
 	AddCorner(knob:FindFirstChild("Frame"), 10)
 
+	local isNaNState = false
+
 	local function updateSlider(ratio)
+		isNaNState = false
 		ratio = Clamp01(ratio)
 		local raw = Lerp(min, max, ratio)
 		local rounded = RoundTo(raw, increment)
@@ -665,10 +669,27 @@ function SliderElement.new(section, config: SliderConfig): SliderElement
 		currentValue = rounded
 		local actualRatio = (rounded - min) / (max - min)
 		Tween(fillBar, 0.08, { Size = UD2_N(actualRatio, 0, 1, 0) }, Enum.EasingStyle.Linear)
-		Tween(knob, 0.08, { Position = UD2_N(actualRatio, -8, 0.5, -8) }, Enum.EasingStyle.Linear)
+		Tween(knob, 0.08, { Size = UD2_N(0, 16, 0, 16), Position = UD2_N(actualRatio, -8, 0.5, -8) }, Enum.EasingStyle.Linear)
 		valueInput.Text = FormatNumber(rounded, decimals)
 		if config.Callback then
 			config.Callback(rounded)
+		end
+	end
+
+	-- Special-case handler for a NaN value: instead of letting NaN propagate into
+	-- clamp/lerp math (which breaks the fill bar and knob position), we grow the
+	-- knob to cover the entire track (fill bar included) as a visual indicator,
+	-- and keep the numeric value stored as NaN. Dragging or clicking the track
+	-- afterwards calls updateSlider normally, which clears isNaNState, shrinks
+	-- the knob back to its normal size, and resumes normal scaling.
+	local function setNaN()
+		isNaNState = true
+		currentValue = 0 / 0
+		Tween(fillBar, 0.08, { Size = UD2_N(1, 0, 1, 0) }, Enum.EasingStyle.Linear)
+		Tween(knob, 0.08, { Size = UD2_N(1, 0, 0, 16), Position = UD2_N(0, 0, 0.5, -8) }, Enum.EasingStyle.Linear)
+		valueInput.Text = "nan"
+		if config.Callback then
+			config.Callback(currentValue)
 		end
 	end
 
@@ -679,13 +700,20 @@ function SliderElement.new(section, config: SliderConfig): SliderElement
 	self._maid:Add(valueInput.FocusLost:Connect(function()
 		if stroke then Tween(stroke, 0.2, { Color = COLORS.Border }) end
 		local num = tonumber(valueInput.Text)
-		if num then
+		if num ~= num then
+			-- tonumber("nan") produces NaN (NaN ~= NaN is always true in Lua)
+			setNaN()
+		elseif num then
 			num = math.clamp(num, min, max)
 			num = RoundTo(num, increment)
 			local ratio = (num - min) / (max - min)
 			updateSlider(ratio)
 		else
-			valueInput.Text = FormatNumber(currentValue, decimals)
+			if isNaNState then
+				valueInput.Text = "nan"
+			else
+				valueInput.Text = FormatNumber(currentValue, decimals)
+			end
 		end
 	end))
 
@@ -718,6 +746,7 @@ function SliderElement.new(section, config: SliderConfig): SliderElement
 
 	self.Frame = frame
 	self._updateSlider = updateSlider
+	self._setNaN = setNaN
 	self._min = min
 	self._max = max
 	self._increment = increment
@@ -731,6 +760,11 @@ end
 
 function SliderElement:SetValue(num: number)
 	if type(num) ~= "number" then return end
+	if num ~= num then
+		-- NaN passed in directly: cover the bar until the user drags/clicks it again
+		self._setNaN()
+		return
+	end
 	num = math.clamp(num, self._min, self._max)
 	num = RoundTo(num, self._increment)
 	local ratio = (num - self._min) / (self._max - self._min)
