@@ -2512,7 +2512,7 @@ function ColorPickerElement.new(section, config: ColorPickerConfig): ColorPicker
 		local boxes = {}
 		local count = #fields
 		local spacing = 2
-		for i, field in ipairs(fields) do
+		for i, field in (fields) do
 			local w = 1 / count
 			local holder = Create("Frame", {
 				Size = UD2_N(w, i < count and -spacing or 0, 1, 0),
@@ -2627,7 +2627,7 @@ function ColorPickerElement.new(section, config: ColorPickerConfig): ColorPicker
 		end
 	end
 
-	for i, presetColor in ipairs(PRESET_COLORS) do
+	for i, presetColor in (PRESET_COLORS) do
 		local pBtn = Create("TextButton", {
 			Size = UD2_N(0, 18, 0, 18),
 			BackgroundColor3 = presetColor,
@@ -4104,7 +4104,7 @@ function Library:NewAuth(config: NewAuthConfig)
 		local steps = { 8, -12, 9, -7, 4, -2, 0 }
 		local shakeInfo = TweenInfo.new(0.055, Enum.EasingStyle.Linear)
 		task.spawn(function()
-			for _, offset in ipairs(steps) do
+			for _, offset in (steps) do
 				TweenService:Create(card, shakeInfo, {
 					Position = UD2_N(0.5, offset, 0.5, 0),
 				}):Play()
@@ -4289,7 +4289,7 @@ function Library:Unload()
 	end)
 
 	table.clear(PRESET_COLORS)
-	for _, defaultColor in ipairs({
+	for _, defaultColor in ({
 		Color3.fromRGB(255, 0, 0), Color3.fromRGB(255, 85, 0), Color3.fromRGB(255, 170, 0),
 		Color3.fromRGB(255, 255, 0), Color3.fromRGB(170, 255, 0), Color3.fromRGB(85, 255, 0),
 		Color3.fromRGB(0, 255, 0), Color3.fromRGB(0, 255, 85), Color3.fromRGB(0, 255, 170),
