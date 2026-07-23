@@ -392,7 +392,7 @@ type NewAuthConfig = {
 	Title: string?,
 	GetKey: (() -> ())?,
 	Auth: ((string) -> any)?,
-	Freeze: boolean?,
+	OnSuccess: (() -> ())?,
 }
 
 local function CalculateWindowSize()
@@ -3818,7 +3818,7 @@ function Library:NewAuth(config: NewAuthConfig)
 	local title = config.Title or "Key System"
 	local getKey = config.GetKey
 	local authFn = config.Auth
-	local freeze = config.Freeze
+	local onSuccess = config.OnSuccess
 
 	if authFn then
 		local ok = pcall(function()
@@ -4141,7 +4141,9 @@ function Library:NewAuth(config: NewAuthConfig)
 		Tween(getKeyFrame, 0.1, { Size = UD2_N(0, math.floor((cardW - 24) * 0.42), 0, btnH) })
 	end)
 	getKeyBtn.MouseButton1Click:Connect(function()
-		if getKey then task.spawn(getKey) end
+		if getKey then
+			task.spawn(getKey)
+		end
 	end)
 
 	activateBtn.MouseEnter:Connect(function()
@@ -4164,15 +4166,19 @@ function Library:NewAuth(config: NewAuthConfig)
 	end)
 
 	activateBtn.MouseButton1Click:Connect(function()
-		if authed or activating then return end
+		if authed or activating then
+			return
+		end
 		activating = true
 		local inputText = keyInput.Text
 		activateBtn.Text = "..."
 		setStatus("", false)
+
 		task.spawn(function()
 			local ok, result = pcall(function()
 				return authFn and authFn(inputText)
 			end)
+
 			if ok and result then
 				authed = true
 				activateBtn.Text = "✓"
@@ -4181,8 +4187,15 @@ function Library:NewAuth(config: NewAuthConfig)
 				Tween(inputStroke, 0.3, { Color = C3_FRGB(72, 199, 116) })
 				keyInput.TextSize = 16
 				keyInput.Text = string.rep("*", 20)
+
 				task.wait(0.5)
+
+				if onSuccess then
+					task.spawn(onSuccess)
+				end
+
 				successEvent:Fire()
+				closeAuth()
 			else
 				activateBtn.Text = "ACTIVATE"
 				setStatus("Invalid key. Please try again.", true)
@@ -4206,15 +4219,8 @@ function Library:NewAuth(config: NewAuthConfig)
 
 	Tween(card, 0.5, { Size = UD2_N(0, cardW, 0, cardH), GroupTransparency = 0 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
-	if freeze then
-		successEvent.Event:Wait()
-		task.wait(0.3)
-		closeAuth()
-	end
-
 	return {
 		Close = closeAuth,
-		OnSuccess = successEvent.Event,
 	}
 end
 
