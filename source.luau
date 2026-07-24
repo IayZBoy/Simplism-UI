@@ -109,7 +109,6 @@ type SectionConfig = {
 type ButtonConfig = {
 	Text: string?,
 	ListOrder: number?,
-	Tooltip: string?,
 	Callback: (() -> ())?,
 }
 
@@ -129,7 +128,6 @@ type SliderConfig = {
 	Increment: number?,
 	Decimals: number?,
 	ListOrder: number?,
-	Tooltip: string?,
 	Callback: ((number) -> ())?,
 }
 
@@ -145,7 +143,6 @@ type ToggleConfig = {
 	Text: string?,
 	Default: boolean?,
 	ListOrder: number?,
-	Tooltip: string?,
 	Callback: ((boolean) -> ())?,
 }
 
@@ -161,7 +158,6 @@ type ToggleElement = {
 type LabelConfig = {
 	Text: string?,
 	ListOrder: number?,
-	Tooltip: string?,
 }
 
 type LabelElement = {
@@ -179,7 +175,6 @@ type DropdownConfig = {
 	Default: string?,
 	Searchable: boolean?,
 	ListOrder: number?,
-	Tooltip: string?,
 	Callback: ((string) -> ())?,
 }
 
@@ -202,7 +197,6 @@ type MultiSelectDropdownConfig = {
 	MaxSelected: number?,
 	Searchable: boolean?,
 	ListOrder: number?,
-	Tooltip: string?,
 	Callback: (({ string }) -> ())?,
 }
 
@@ -223,7 +217,6 @@ type TextBoxConfig = {
 	Text: string?,
 	PlaceHolder: string?,
 	ListOrder: number?,
-	Tooltip: string?,
 	Callback: ((string) -> ())?,
 }
 
@@ -242,7 +235,6 @@ type KeyInputConfig = {
 	ListOrder: number?,
 	Clearable: boolean?,
 	ListenForInputEnded: boolean?,
-	Tooltip: string?,
 	Callback: ((Enum.KeyCode?) -> ())?,
 	InputPressedCallback: ((Enum.KeyCode) -> ())?,
 }
@@ -266,7 +258,6 @@ type ColorPickerConfig = {
 	Text: string?,
 	Default: Color3?,
 	ListOrder: number?,
-	Tooltip: string?,
 	Callback: ((Color3) -> ())?,
 }
 
@@ -533,147 +524,6 @@ local function MeasureKeyWidth(text, minWidth, maxWidth, fontSize, horizontalPad
 end
 
 
-local function EnsureTooltipGui(window)
-	if window._tooltipGui then
-		return window._tooltipGui
-	end
-
-	local tooltipGui = Create("Frame", {
-		Name = "TooltipHost",
-		Size = UD2_N(0, 0, 0, 0),
-		BackgroundColor3 = COLORS.DropdownBg,
-		BorderSizePixel = 0,
-		BackgroundTransparency = 1,
-		ZIndex = 5000,
-		Visible = false,
-		Parent = window.ScreenGui,
-	})
-	AddCorner(tooltipGui, 6)
-	local stroke = AddStroke(tooltipGui, COLORS.Border, 1)
-	stroke.Transparency = 1
-
-	local label = Create("TextLabel", {
-		Name = "TooltipLabel",
-		Size = UD2_N(1, -16, 1, -10),
-		Position = UD2_N(0, 8, 0, 5),
-		BackgroundTransparency = 1,
-		Text = "",
-		TextColor3 = COLORS.Text,
-		TextSize = 12,
-		Font = Enum.Font.GothamMedium,
-		TextWrapped = true,
-		ZIndex = 5001,
-		Parent = tooltipGui,
-	})
-
-	window._tooltipGui = tooltipGui
-	window._tooltipLabel = label
-	window._tooltipStroke = stroke
-	return tooltipGui
-end
-
-local function AttachTooltip(window, triggerFrame, text)
-	if not text or text == "" then return {} end
-
-	local connections = {}
-	local hovering = false
-	local shown = false
-	local hoverToken = 0
-
-	local MAX_WIDTH = 220
-	local PADDING_X = 16
-	local PADDING_Y = 10
-	local OFFSET = Vector2.new(14, 18)
-
-	local function positionTooltip(mousePos)
-		local gui = window._tooltipGui
-		if not gui then return end
-		local screenSize = window.ScreenGui.AbsoluteSize
-		local size = gui.AbsoluteSize
-		local x = mousePos.X + OFFSET.X
-		local y = mousePos.Y + OFFSET.Y
-		if x + size.X > screenSize.X - 6 then
-			x = mousePos.X - size.X - 10
-		end
-		if y + size.Y > screenSize.Y - 6 then
-			y = mousePos.Y - size.Y - 10
-		end
-		x = math.clamp(x, 6, math.max(6, screenSize.X - size.X - 6))
-		y = math.clamp(y, 6, math.max(6, screenSize.Y - size.Y - 6))
-		gui.Position = UD2_N(0, x, 0, y)
-	end
-
-	local function computeSize()
-		local ok, textSize = pcall(function()
-			return TextService:GetTextSize(text, 12, Enum.Font.GothamMedium, Vector2.new(MAX_WIDTH - PADDING_X, 1000))
-		end)
-		local w = ok and math.min(MAX_WIDTH, textSize.X + PADDING_X) or MAX_WIDTH
-		local h = ok and (textSize.Y + PADDING_Y) or 30
-		return w, h
-	end
-
-	local function showTooltip()
-		EnsureTooltipGui(window)
-		local gui = window._tooltipGui
-		local label = window._tooltipLabel
-		local stroke = window._tooltipStroke
-		label.Text = text
-		local w, h = computeSize()
-		gui.Size = UD2_N(0, w, 0, h)
-		gui.Visible = true
-		gui.BackgroundTransparency = 1
-		stroke.Transparency = 1
-		local mousePos = UserInputService:GetMouseLocation()
-		positionTooltip(mousePos)
-		shown = true
-		Tween(gui, 0.15, { BackgroundTransparency = 0.05 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-		Tween(stroke, 0.15, { Transparency = 0.3 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	end
-
-	local function hideTooltip()
-		if not shown then return end
-		shown = false
-		local gui = window._tooltipGui
-		local stroke = window._tooltipStroke
-		if not gui then return end
-		local myToken = window._tooltipToken
-		Tween(gui, 0.12, { BackgroundTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-		if stroke then
-			Tween(stroke, 0.12, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-		end
-		task.delay(0.12, function()
-			if window._tooltipToken == myToken and not shown then
-				gui.Visible = false
-			end
-		end)
-	end
-
-	table.insert(connections, triggerFrame.MouseEnter:Connect(function()
-		hovering = true
-		window._tooltipToken += 1
-		local myToken = window._tooltipToken
-		task.delay(0.5, function()
-			if hovering and window._tooltipToken == myToken then
-				showTooltip()
-			end
-		end)
-	end))
-
-	table.insert(connections, triggerFrame.MouseLeave:Connect(function()
-		hovering = false
-		window._tooltipToken += 1
-		hideTooltip()
-	end))
-
-	table.insert(connections, triggerFrame.MouseMoved:Connect(function(x, y)
-		if shown then
-			positionTooltip(Vector2.new(x, y))
-		end
-	end))
-
-	return connections
-end
-
 local Maid = {}
 Maid.__index = Maid
 
@@ -746,9 +596,6 @@ function ButtonElement.new(section, config: ButtonConfig): ButtonElement
 		Tween(frame, 0.1, { Size = UD2_N(1, 0, 0, 36) })
 	end))
 
-	if config.Tooltip then
-		self._maid:AddList(AttachTooltip(section.Window, frame, config.Tooltip))
-	end
 
 	self.Frame = frame
 	self.Button = btn
@@ -779,7 +626,14 @@ function SliderElement.new(section, config: SliderConfig): SliderElement
 
 	local min = config.Min or 0
 	local max = config.Max or 100
-	local default = config.Default or min
+	local default = config.Default
+	if default == nil then
+		default = min
+	end
+	local defaultIsNaN = default ~= default
+	if defaultIsNaN then
+		default = min
+	end
 	local increment = config.Increment or 1
 	local decimals = config.Decimals or (increment < 1 and 2 or 0)
 	local currentValue = default
@@ -898,6 +752,10 @@ function SliderElement.new(section, config: SliderConfig): SliderElement
 		end
 	end
 
+	if defaultIsNaN then
+		setNaN()
+	end
+
 	self._maid:Add(valueInput.Focused:Connect(function()
 		if stroke then Tween(stroke, 0.2, { Color = COLORS.Accent }) end
 	end))
@@ -948,9 +806,6 @@ function SliderElement.new(section, config: SliderConfig): SliderElement
 		end
 	end))
 
-	if config.Tooltip then
-		self._maid:AddList(AttachTooltip(section.Window, frame, config.Tooltip))
-	end
 
 	self.Frame = frame
 	self._updateSlider = updateSlider
@@ -1059,9 +914,6 @@ function ToggleElement.new(section, config: ToggleConfig): ToggleElement
 		setState(not toggled)
 	end))
 
-	if config.Tooltip then
-		self._maid:AddList(AttachTooltip(section.Window, frame, config.Tooltip))
-	end
 
 	self.Frame = frame
 	self.Label = label
@@ -1111,9 +963,6 @@ function LabelElement.new(section, config: LabelConfig): LabelElement
 		Parent = frame,
 	})
 
-	if config.Tooltip then
-		self._maid:AddList(AttachTooltip(section.Window, frame, config.Tooltip))
-	end
 
 	self.Frame = frame
 	self.Label = txt
@@ -1385,9 +1234,6 @@ function DropdownElement.new(section, config: DropdownConfig): DropdownElement
 		end
 	end))
 
-	if config.Tooltip then
-		self._maid:AddList(AttachTooltip(section.Window, frame, config.Tooltip))
-	end
 
 	self.Frame = frame
 	self.Label = label
@@ -1786,9 +1632,6 @@ function MultiSelectDropdownElement.new(section, config: MultiSelectDropdownConf
 		end
 	end))
 
-	if config.Tooltip then
-		self._maid:AddList(AttachTooltip(section.Window, frame, config.Tooltip))
-	end
 
 	self.Frame = frame
 	self.Label = label
@@ -2028,9 +1871,6 @@ function TextBoxElement.new(section, config: TextBoxConfig): TextBoxElement
 		end
 	end))
 
-	if config.Tooltip then
-		self._maid:AddList(AttachTooltip(section.Window, frame, config.Tooltip))
-	end
 
 	self.Frame = frame
 	self.TextBox = textBox
@@ -2218,9 +2058,6 @@ function KeyInputElement.new(section, config: KeyInputConfig): KeyInputElement
 		end))
 	end
 
-	if config.Tooltip then
-		self._maid:AddList(AttachTooltip(section.Window, frame, config.Tooltip))
-	end
 
 	self.Frame = frame
 	self.Button = keyBtn
@@ -2791,9 +2628,6 @@ function ColorPickerElement.new(section, config: ColorPickerConfig): ColorPicker
 		end
 	end))
 
-	if config.Tooltip then
-		self._maid:AddList(AttachTooltip(window, mainRow, config.Tooltip))
-	end
 
 	self.Frame = frame
 	self.Preview = preview
@@ -3213,10 +3047,6 @@ function Window.new(config: WindowConfig): WindowObject
 	self._visibilityButtons = {}
 	self._currentColorPicker = nil
 	self.IsMinimized = false
-	self._tooltipGui = nil
-	self._tooltipLabel = nil
-	self._tooltipStroke = nil
-	self._tooltipToken = 0
 
 	local startVisible = true
 	if config.StartVisible ~= nil then
@@ -3570,9 +3400,6 @@ function Window:Destroy()
 	end
 	if self._toggleKeybindHolder and self._toggleKeybindHolder.Parent then
 		self._toggleKeybindHolder:Destroy()
-	end
-	if self._tooltipGui and self._tooltipGui.Parent then
-		self._tooltipGui:Destroy()
 	end
 	for _, tab in self.Tabs do
 		tab:Destroy()
