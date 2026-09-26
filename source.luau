@@ -3120,6 +3120,7 @@ function Window.new(config: WindowConfig): WindowObject
 		BorderSizePixel = 0,
 		GroupTransparency = 0,
 		ClipsDescendants = true,
+		Active = true,
 		Parent = self.ScreenGui,
 	})
 	AddCorner(self.MainFrame, 12)
