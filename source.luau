@@ -69,6 +69,11 @@ local PRESET_COLORS = {
 	Color3.fromRGB(0, 0, 0),
 }
 
+Library.Theme = {
+	TextSize = 14,
+	TextColor = COLORS.Text,
+}
+
 type ThemeColors = {
 	Background: Color3?,
 	TopBar: Color3?,
@@ -315,7 +320,7 @@ type TabObject = {
 }
 
 type VisibilityButtonConfig = {
-	Button: TextButton | ImageButton,
+	Button: GuiButton,
 	ShowText: string?,
 	HideText: string?,
 }
@@ -354,6 +359,7 @@ type WindowObject = {
 	Toggle: (self: WindowObject) -> (),
 	Minimize: (self: WindowObject) -> (),
 	AttachVisibilityButton: (self: WindowObject, config: VisibilityButtonConfig) -> (),
+	Toast: (self: WindowObject, config: ToastConfig) -> ToastObject,
 	Destroy: (self: WindowObject) -> (),
 }
 
@@ -375,6 +381,41 @@ type NewAuthConfig = {
 	GetKey: (() -> ())?,
 	Auth: ((string) -> any)?,
 	OnSuccess: (() -> ())?,
+}
+
+export type ToastPosition = "Top" | "TopLeft" | "TopRight" | "Bottom" | "BottomLeft" | "BottomRight" | Vector2
+export type ToastType = "Library" | "Info" | "Success" | "Warning" | "Error"
+
+export type ToastConfig = {
+	Text: string?,
+	Duration: number?,
+	Position: ToastPosition?,
+	Type: ToastType?,
+
+	TextSize: number?,
+	TextColor: Color3?,
+	BackgroundColor: Color3?,
+	BorderColor: Color3?,
+
+	ShowDurationBar: boolean?,
+	DurationBarColor: Color3?,
+
+	Dismissible: boolean?,
+
+	MaxWidth: number?,
+	Spacing: number?,
+	SafeAreaPadding: number?,
+	EntranceDuration: number?,
+	ExitDuration: number?,
+	MaxStackSize: number?,
+	PauseOnHover: boolean?,
+}
+
+export type ToastObject = {
+	Dismiss: (self: ToastObject) -> (),
+	Destroy: (self: ToastObject) -> (),
+	ResetDuration: (self: ToastObject) -> (),
+	SetText: (self: ToastObject, Text: string) -> (),
 }
 
 local function CalculateWindowSize()
@@ -3047,6 +3088,7 @@ function Window.new(config: WindowConfig): WindowObject
 	self._visibilityButtons = {}
 	self._currentColorPicker = nil
 	self.IsMinimized = false
+	self._toastStacks = {}
 
 	local startVisible = true
 	if config.StartVisible ~= nil then
@@ -3310,6 +3352,14 @@ function Window.new(config: WindowConfig): WindowObject
 		Parent = self.MainFrame,
 	})
 
+	self.ToastLayer = Create("Frame", {
+		Name = "ToastLayer",
+		Size = UD2_N(1, 0, 1, 0),
+		BackgroundTransparency = 1,
+		ZIndex = 5000,
+		Parent = self.ContentArea,
+	})
+
 	self.ColorPickerShadow = Create("Frame", {
 		Name = "ColorPickerShadow",
 		Size = UD2_N(1, 0, 1, 0),
@@ -3404,6 +3454,7 @@ function Window:Destroy()
 	for _, tab in self.Tabs do
 		tab:Destroy()
 	end
+	self:_DestroyAllToasts()
 	self._maid:Destroy()
 	if not self.Parent and self.ScreenGui and self.ScreenGui.Parent then
 		self.ScreenGui:Destroy()
@@ -3491,6 +3542,541 @@ function Window:AttachVisibilityButton(config: VisibilityButtonConfig)
 	button.MouseButton1Click:Connect(function()
 		self:SetVisible(not self.IsOpen)
 	end)
+end
+
+-- ==========================================================================
+-- Toast Notification System
+-- ==========================================================================
+
+local TOAST_TYPE_COLOR_KEY = {
+	Library = "Accent",
+	Info = C3_FRGB(64, 145, 255),
+	Success = C3_FRGB(70, 200, 120),
+	Warning = C3_FRGB(255, 170, 60),
+	Error = C3_FRGB(255, 80, 80),
+}
+
+local function GetToastTypeColor(toastType)
+	local value = TOAST_TYPE_COLOR_KEY[toastType or "Library"]
+	if value == "Accent" then
+		return COLORS.Accent
+	end
+	return value or COLORS.Accent
+end
+
+-- Preset layout table: how each preset stack anchors, grows, and slides.
+local PRESET_LAYOUT = {
+	Top = {
+		AnchorPoint = Vector2.new(0.5, 0),
+		PositionFn = function(pad) return UD2_N(0.5, 0, 0, pad) end,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Top,
+		SlideAxis = "Y",
+		SlideFrom = -1, -- comes from above (negative Y offset)
+	},
+	TopLeft = {
+		AnchorPoint = Vector2.new(0, 0),
+		PositionFn = function(pad) return UD2_N(0, pad, 0, pad) end,
+		HorizontalAlignment = Enum.HorizontalAlignment.Left,
+		VerticalAlignment = Enum.VerticalAlignment.Top,
+		SlideAxis = "Y",
+		SlideFrom = -1,
+	},
+	TopRight = {
+		AnchorPoint = Vector2.new(1, 0),
+		PositionFn = function(pad) return UD2_N(1, -pad, 0, pad) end,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+		VerticalAlignment = Enum.VerticalAlignment.Top,
+		SlideAxis = "Y",
+		SlideFrom = -1,
+	},
+	Bottom = {
+		AnchorPoint = Vector2.new(0.5, 1),
+		PositionFn = function(pad) return UD2_N(0.5, 0, 1, -pad) end,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Bottom,
+		SlideAxis = "Y",
+		SlideFrom = 1, -- comes from below (positive Y offset)
+	},
+	BottomLeft = {
+		AnchorPoint = Vector2.new(0, 1),
+		PositionFn = function(pad) return UD2_N(0, pad, 1, -pad) end,
+		HorizontalAlignment = Enum.HorizontalAlignment.Left,
+		VerticalAlignment = Enum.VerticalAlignment.Bottom,
+		SlideAxis = "Y",
+		SlideFrom = 1,
+	},
+	BottomRight = {
+		AnchorPoint = Vector2.new(1, 1),
+		PositionFn = function(pad) return UD2_N(1, -pad, 1, -pad) end,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+		VerticalAlignment = Enum.VerticalAlignment.Bottom,
+		SlideAxis = "Y",
+		SlideFrom = 1,
+	},
+}
+
+local function MeasureToastWidth(text, textSize, maxContentWidth)
+	local ok, size = pcall(function()
+		return TextService:GetTextSize(
+			text or "",
+			textSize,
+			Enum.Font.GothamMedium,
+			Vector2.new(maxContentWidth, math.huge)
+		)
+	end)
+	local textWidth = ok and size.X or (#(text or "") * (textSize * 0.55))
+	return math.clamp(math.ceil(textWidth), 1, maxContentWidth)
+end
+
+local function GetToastStackKey(position)
+	if typeof(position) == "Vector2" then
+		return string.format("vec:%.4f,%.4f", position.X, position.Y), true
+	end
+	return tostring(position), false
+end
+
+-- Gets (or lazily creates) the container/state for a given stack on a window.
+local function GetOrCreateToastStack(window, position, safeAreaPadding, spacing)
+	local key, isVector = GetToastStackKey(position)
+	local stack = window._toastStacks[key]
+	if stack then
+		return stack
+	end
+
+	local container
+	if isVector then
+		container = Create("Frame", {
+			Name = "ToastStack_" .. key,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UD2_N(position.X, 0, position.Y, 0),
+			Size = UD2_N(0, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.XY,
+			BackgroundTransparency = 1,
+			Parent = window.ToastLayer,
+		})
+		local list = AddListLayout(container, spacing, Enum.FillDirection.Vertical, Enum.SortOrder.LayoutOrder)
+		list.HorizontalAlignment = Enum.HorizontalAlignment.Center
+		list.VerticalAlignment = Enum.VerticalAlignment.Center
+	else
+		local layout = PRESET_LAYOUT[position]
+		container = Create("Frame", {
+			Name = "ToastStack_" .. tostring(position),
+			AnchorPoint = layout.AnchorPoint,
+			Position = layout.PositionFn(safeAreaPadding),
+			Size = UD2_N(0, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.XY,
+			BackgroundTransparency = 1,
+			Parent = window.ToastLayer,
+		})
+		local list = AddListLayout(container, spacing, Enum.FillDirection.Vertical, Enum.SortOrder.LayoutOrder)
+		list.HorizontalAlignment = layout.HorizontalAlignment
+		list.VerticalAlignment = layout.VerticalAlignment
+	end
+
+	stack = {
+		Container = container,
+		Position = position,
+		IsVector = isVector,
+		Order = {}, -- ordered list of toast objects, oldest first
+		NextLayoutOrder = 0,
+	}
+	window._toastStacks[key] = stack
+	return stack
+end
+
+local function RemoveFromStack(stack, toast)
+	for i, t in (stack.Order) do
+		if t == toast then
+			table.remove(stack.Order, i)
+			break
+		end
+	end
+end
+
+local Toast = {}
+Toast.__index = Toast
+
+function Toast.new(window, config: ToastConfig)
+	config = config or {}
+
+	local self = setmetatable({}, Toast)
+	self._maid = Maid.new()
+	self._window = window
+	self._state = "entering" -- entering | idle | paused | dismissing | destroyed
+
+	local text = config.Text or ""
+	local duration = config.Duration or 5
+	local position = config.Position or "Bottom"
+	local toastType = config.Type or "Library"
+
+	local textSize = config.TextSize or Library.Theme.TextSize
+	local textColor = config.TextColor or Library.Theme.TextColor
+	local typeColor = GetToastTypeColor(toastType)
+	local backgroundColor = config.BackgroundColor or COLORS.NotificationBg
+	local borderColor = config.BorderColor or typeColor
+	local showDurationBar = config.ShowDurationBar
+	if showDurationBar == nil then
+		showDurationBar = true
+	end
+	local durationBarColor = config.DurationBarColor or borderColor
+	local dismissible = config.Dismissible
+	if dismissible == nil then
+		dismissible = true
+	end
+
+	local maxWidth = config.MaxWidth or 360
+	local spacing = config.Spacing or 8
+	local safeAreaPadding = config.SafeAreaPadding or 16
+	local entranceDuration = config.EntranceDuration or 0.35
+	local exitDuration = config.ExitDuration or 0.3
+	local maxStackSize = config.MaxStackSize or 8
+	local pauseOnHover = config.PauseOnHover
+	if pauseOnHover == nil then
+		pauseOnHover = true
+	end
+
+	self._duration = duration
+	self._entranceDuration = entranceDuration
+	self._exitDuration = exitDuration
+	self._pauseOnHover = pauseOnHover
+	self._dismissible = dismissible
+	self._showDurationBar = showDurationBar and duration > 0
+
+	local stack = GetOrCreateToastStack(window, position, safeAreaPadding, spacing)
+	self._stack = stack
+	self._stackKey = select(1, GetToastStackKey(position))
+
+	-- Reserve our spot in the stack first, then evict any overflow. Inserting
+	-- ourselves before evicting guarantees the stack is never seen as empty
+	-- mid-construction, which would otherwise tear down the shared container
+	-- we're about to parent into.
+	table.insert(stack.Order, self)
+	stack.NextLayoutOrder += 1
+	self._layoutOrder = stack.NextLayoutOrder
+
+	while #stack.Order > maxStackSize do
+		local oldest = stack.Order[1]
+		if oldest and oldest ~= self then
+			oldest:Destroy()
+		else
+			break
+		end
+	end
+
+	local horizontalPadding = 20 -- 10px AddPadding on each side
+	local minToastWidth = 60
+	local maxContentWidth = math.max(1, maxWidth - horizontalPadding)
+	local contentWidth = MeasureToastWidth(text, textSize, maxContentWidth)
+	local toastWidth = math.clamp(contentWidth + horizontalPadding, minToastWidth, maxWidth)
+
+	local frame = Create("CanvasGroup", {
+		Name = "Toast",
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Size = UD2_N(0, toastWidth, 0, 0),
+		BackgroundColor3 = backgroundColor,
+		BorderSizePixel = 0,
+		GroupTransparency = 1,
+		LayoutOrder = self._layoutOrder,
+		ZIndex = 100 + self._layoutOrder,
+		ClipsDescendants = false,
+		Parent = stack.Container,
+	})
+	AddCorner(frame, 10)
+	AddStroke(frame, borderColor, 1.5)
+	self._maid:Add(frame)
+	self.Frame = frame
+	self._maxWidth = maxWidth
+	self._horizontalPadding = horizontalPadding
+	self._minToastWidth = minToastWidth
+	self._textSize = textSize
+
+	local contentFrame = Create("Frame", {
+		Size = UD2_N(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		Parent = frame,
+	})
+	AddPadding(contentFrame, 10)
+
+	local label = Create("TextLabel", {
+		Name = "ToastText",
+		Size = UD2_N(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		Text = text,
+		RichText = true,
+		TextWrapped = true,
+		TextColor3 = textColor,
+		TextSize = textSize,
+		Font = Enum.Font.GothamMedium,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Parent = contentFrame,
+	})
+	self.Label = label
+
+	local durationBar
+	if self._showDurationBar then
+		durationBar = Create("Frame", {
+			Name = "DurationBar",
+			Size = UD2_N(1, 0, 0, 3),
+			Position = UD2_N(0, 0, 1, -3),
+			BackgroundColor3 = durationBarColor,
+			BorderSizePixel = 0,
+			ZIndex = 2,
+			Parent = frame,
+		})
+		AddCorner(durationBar, 10)
+	end
+	self._durationBar = durationBar
+
+	-- click-to-dismiss
+	if dismissible then
+		self._maid:Add(frame.InputBegan:Connect(function(input)
+			if self._state ~= "entering" and self._state ~= "idle" and self._state ~= "paused" then
+				return
+			end
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				self:Dismiss()
+			end
+		end))
+	end
+
+	-- hover pause
+	if pauseOnHover then
+		self._maid:Add(frame.MouseEnter:Connect(function()
+			self:_Pause()
+		end))
+		self._maid:Add(frame.MouseLeave:Connect(function()
+			self:_Resume()
+		end))
+	end
+
+	self:_PlayEntrance()
+
+	return self
+end
+
+function Toast:_EdgeOffset()
+	local stack = self._stack
+	if stack.IsVector then
+		return Vector2.new(0, 0)
+	end
+	local layout = PRESET_LAYOUT[stack.Position]
+	if layout.SlideAxis == "Y" then
+		return Vector2.new(0, layout.SlideFrom * 40)
+	end
+	return Vector2.new(0, 0)
+end
+
+function Toast:_PlayEntrance()
+	local frame = self.Frame
+	local offset = self:_EdgeOffset()
+
+	frame.Position = UD2_N(0, offset.X, 0, offset.Y)
+	frame.GroupTransparency = 1
+
+	local entranceTween = Tween(frame, self._entranceDuration, {
+		Position = UD2_N(0, 0, 0, 0),
+		GroupTransparency = 0,
+	}, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+	self._entranceTween = entranceTween
+
+	self._entranceToken = task.delay(self._entranceDuration, function()
+		self._entranceToken = nil
+		if self._state ~= "entering" then
+			return
+		end
+		self._state = "idle"
+		self:_StartDurationTimer()
+	end)
+	self._maid:Add(function()
+		if self._entranceToken then
+			pcall(task.cancel, self._entranceToken)
+			self._entranceToken = nil
+		end
+	end)
+end
+
+function Toast:_StartDurationTimer()
+	if self._duration <= 0 then
+		return
+	end
+	self._remaining = self._duration
+	self._timerStartedAt = os.clock()
+
+	if self._durationBar then
+		self._durationBar.Size = UD2_N(1, 0, 0, 3)
+		self._durationBarTween = Tween(self._durationBar, self._remaining, {
+			Size = UD2_N(0, 0, 0, 3),
+		}, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
+	end
+
+	self._durationToken = task.delay(self._remaining, function()
+		self._durationToken = nil
+		if self._state == "idle" then
+			self:Dismiss()
+		end
+	end)
+end
+
+function Toast:_CancelDurationTimer()
+	if self._durationToken then
+		local ok = pcall(task.cancel, self._durationToken)
+		if not ok then
+			-- thread already running/finished (e.g. cancelling from within
+			-- its own expiry callback) -- safe to ignore
+		end
+		self._durationToken = nil
+	end
+	if self._durationBarTween then
+		self._durationBarTween:Cancel()
+		self._durationBarTween = nil
+	end
+end
+
+function Toast:_Pause()
+	if self._state ~= "idle" or not self._pauseOnHover or self._duration <= 0 then
+		return
+	end
+	local elapsed = os.clock() - (self._timerStartedAt or os.clock())
+	self._remaining = math.max(0, (self._remaining or self._duration) - elapsed)
+	self:_CancelDurationTimer()
+	self._state = "paused"
+
+	if self._durationBar then
+		-- freeze the bar at its current visual width
+		local currentWidth = self._durationBar.AbsoluteSize.X
+		self._durationBar.Size = UD2_N(0, currentWidth, 0, 3)
+	end
+end
+
+function Toast:_Resume()
+	if self._state ~= "paused" then
+		return
+	end
+	self._state = "idle"
+	self._timerStartedAt = os.clock()
+
+	if self._durationBar and self._remaining and self._remaining > 0 then
+		self._durationBarTween = Tween(self._durationBar, self._remaining, {
+			Size = UD2_N(0, 0, 0, 3),
+		}, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
+	end
+
+	self._durationToken = task.delay(self._remaining or self._duration, function()
+		self._durationToken = nil
+		if self._state == "idle" then
+			self:Dismiss()
+		end
+	end)
+end
+
+function Toast:ResetDuration()
+	if self._state == "destroyed" or self._state == "dismissing" then
+		return
+	end
+	self:_CancelDurationTimer()
+	if self._state == "entering" then
+		-- will restart naturally once the entrance animation completes
+		return
+	end
+	if self._state == "paused" then
+		-- stay paused (still hovered); just reset the remaining time so
+		-- the timer restarts fresh from the beginning once the pointer leaves
+		self._remaining = self._duration
+		if self._durationBar then
+			self._durationBar.Size = UD2_N(1, 0, 0, 3)
+		end
+		return
+	end
+	self._state = "idle"
+	self:_StartDurationTimer()
+end
+
+function Toast:SetText(text: string)
+	if self._state == "destroyed" or self._state == "dismissing" then
+		return
+	end
+	text = text or ""
+	self.Label.Text = text
+
+	local maxContentWidth = math.max(1, self._maxWidth - self._horizontalPadding)
+	local contentWidth = MeasureToastWidth(text, self._textSize, maxContentWidth)
+	local toastWidth = math.clamp(contentWidth + self._horizontalPadding, self._minToastWidth, self._maxWidth)
+	self.Frame.Size = UD2_N(0, toastWidth, 0, 0)
+end
+
+function Toast:_Cleanup()
+	local stack = self._stack
+	if stack then
+		RemoveFromStack(stack, self)
+		if #stack.Order == 0 then
+			local key = self._stackKey
+			local window = self._window
+			if window and window._toastStacks[key] == stack then
+				window._toastStacks[key] = nil
+			end
+			task.defer(function()
+				if stack.Container and stack.Container.Parent then
+					stack.Container:Destroy()
+				end
+			end)
+		end
+	end
+	self._maid:Destroy()
+end
+
+function Toast:Dismiss()
+	if self._state == "destroyed" or self._state == "dismissing" then
+		return
+	end
+	self._state = "dismissing"
+
+	if self._entranceTween then
+		self._entranceTween:Cancel()
+	end
+	self:_CancelDurationTimer()
+
+	local offset = self:_EdgeOffset()
+	Tween(self.Frame, self._exitDuration, {
+		Position = UD2_N(0, offset.X, 0, offset.Y),
+		GroupTransparency = 1,
+	}, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+
+	task.delay(self._exitDuration, function()
+		if self._state == "destroyed" then
+			return
+		end
+		self._state = "destroyed"
+		self:_Cleanup()
+	end)
+end
+
+function Toast:Destroy()
+	if self._state == "destroyed" then
+		return
+	end
+	self._state = "destroyed"
+	self:_Cleanup()
+end
+
+function Window:_DestroyAllToasts()
+	for _, stack in (self._toastStacks) do
+		local order = table.clone(stack.Order)
+		for _, toast in (order) do
+			toast:Destroy()
+		end
+		if stack.Container and stack.Container.Parent then
+			stack.Container:Destroy()
+		end
+	end
+	table.clear(self._toastStacks)
+end
+
+function Window:Toast(config: ToastConfig): ToastObject
+	return Toast.new(self, config or {})
 end
 
 function Library:Window(config: WindowConfig): WindowObject
