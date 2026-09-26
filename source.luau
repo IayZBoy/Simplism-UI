@@ -6,7 +6,7 @@ local TextService = game:GetService("TextService")
 
 -- Instances
 local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+local playerGui = (gethui and gethui()) or game:GetService("CoreGui") or player:WaitForChild("PlayerGui")
 
 -- Common variables
 local UD2_N = UDim2.new
