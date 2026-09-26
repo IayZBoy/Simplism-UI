@@ -564,6 +564,29 @@ local function MeasureKeyWidth(text, minWidth, maxWidth, fontSize, horizontalPad
 	return math.clamp(width, minWidth, maxWidth)
 end
 
+local function uuid()
+	local rng = Random.new()
+	local bytes = table.create(16)
+
+	for i = 1, 16 do
+		bytes[i] = rng:NextInteger(0, 255)
+	end
+
+	bytes[7] = bit32.bor(bit32.band(bytes[7], 0x0F), 0x40)
+	bytes[9] = bit32.bor(bit32.band(bytes[9], 0x3F), 0x80)
+
+	local hex = table.create(16)
+
+	for i = 1, 16 do
+		hex[i] = string.format("%02x", bytes[i])
+	end
+
+	return table.concat(hex, "", 1, 4)
+		.. "-" .. table.concat(hex, "", 5, 6)
+		.. "-" .. table.concat(hex, "", 7, 8)
+		.. "-" .. table.concat(hex, "", 9, 10)
+		.. "-" .. table.concat(hex, "", 11, 16)
+end
 
 local Maid = {}
 Maid.__index = Maid
@@ -3064,7 +3087,7 @@ Window.__index = Window
 function Window.new(config: WindowConfig): WindowObject
 	local self = setmetatable({}, Window)
 	self._maid = Maid.new()
-	self.Title = config.Title or "Settings"
+	self.Title = config.Title or "SimplismUI"
 
 	if config.OverrideSize then
 		self.Size = config.Size
@@ -3101,7 +3124,7 @@ function Window.new(config: WindowConfig): WindowObject
 
 	if not self.Parent then
 		self.ScreenGui = Create("ScreenGui", {
-			Name = "SettingsUI",
+			Name = uuid(),
 			ResetOnSpawn = false,
 			IgnoreGuiInset = true,
 			ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
