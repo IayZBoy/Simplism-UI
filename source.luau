@@ -4115,7 +4115,7 @@ function Library:Notify(config: NotifyConfig)
 	local notifGui = playerGui:FindFirstChild("NotificationUI")
 	if not notifGui then
 		notifGui = Create("ScreenGui", {
-			Name = "NotificationUI",
+			Name = uuid(),
 			ResetOnSpawn = false,
 			IgnoreGuiInset = true,
 			ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
