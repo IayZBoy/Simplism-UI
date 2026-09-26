@@ -1,8 +1,14 @@
+-- Services
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local TextService = game:GetService("TextService")
 
+-- Instances
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Common variables
 local UD2_N = UDim2.new
 local C3_FRGB = Color3.fromRGB
 
@@ -67,6 +73,108 @@ local PRESET_COLORS = {
 	Color3.fromRGB(64, 64, 64),
 	Color3.fromRGB(32, 32, 32),
 	Color3.fromRGB(0, 0, 0),
+}
+
+local Maid = {}
+Maid.__index = Maid
+
+local ButtonElement = {}
+ButtonElement.__index = ButtonElement
+
+local SliderElement = {}
+SliderElement.__index = SliderElement
+
+local ToggleElement = {}
+ToggleElement.__index = ToggleElement
+
+local LabelElement = {}
+LabelElement.__index = LabelElement
+
+local DropdownElement = {}
+DropdownElement.__index = DropdownElement
+
+local MultiSelectDropdownElement = {}
+MultiSelectDropdownElement.__index = MultiSelectDropdownElement
+
+local TextBoxElement = {}
+TextBoxElement.__index = TextBoxElement
+
+local KeyInputElement = {}
+KeyInputElement.__index = KeyInputElement
+
+local ColorPickerElement = {}
+ColorPickerElement.__index = ColorPickerElement
+
+local Section = {}
+Section.__index = Section
+
+local Tab = {}
+Tab.__index = Tab
+
+local Window = {}
+Window.__index = Window
+
+local Toast = {}
+Toast.__index = Toast
+
+local TOAST_TYPE_COLOR_KEY = {
+	Library = "Accent",
+	Info = C3_FRGB(64, 145, 255),
+	Success = C3_FRGB(70, 200, 120),
+	Warning = C3_FRGB(255, 170, 60),
+	Error = C3_FRGB(255, 80, 80),
+}
+
+-- Preset layout table: how each preset stack anchors, grows, and slides.
+local PRESET_LAYOUT = {
+	Top = {
+		AnchorPoint = Vector2.new(0.5, 0),
+		PositionFn = function(pad) return UD2_N(0.5, 0, 0, pad) end,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Top,
+		SlideAxis = "Y",
+		SlideFrom = -1, -- comes from above (negative Y offset)
+	},
+	TopLeft = {
+		AnchorPoint = Vector2.new(0, 0),
+		PositionFn = function(pad) return UD2_N(0, pad, 0, pad) end,
+		HorizontalAlignment = Enum.HorizontalAlignment.Left,
+		VerticalAlignment = Enum.VerticalAlignment.Top,
+		SlideAxis = "Y",
+		SlideFrom = -1,
+	},
+	TopRight = {
+		AnchorPoint = Vector2.new(1, 0),
+		PositionFn = function(pad) return UD2_N(1, -pad, 0, pad) end,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+		VerticalAlignment = Enum.VerticalAlignment.Top,
+		SlideAxis = "Y",
+		SlideFrom = -1,
+	},
+	Bottom = {
+		AnchorPoint = Vector2.new(0.5, 1),
+		PositionFn = function(pad) return UD2_N(0.5, 0, 1, -pad) end,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Bottom,
+		SlideAxis = "Y",
+		SlideFrom = 1, -- comes from below (positive Y offset)
+	},
+	BottomLeft = {
+		AnchorPoint = Vector2.new(0, 1),
+		PositionFn = function(pad) return UD2_N(0, pad, 1, -pad) end,
+		HorizontalAlignment = Enum.HorizontalAlignment.Left,
+		VerticalAlignment = Enum.VerticalAlignment.Bottom,
+		SlideAxis = "Y",
+		SlideFrom = 1,
+	},
+	BottomRight = {
+		AnchorPoint = Vector2.new(1, 1),
+		PositionFn = function(pad) return UD2_N(1, -pad, 1, -pad) end,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+		VerticalAlignment = Enum.VerticalAlignment.Bottom,
+		SlideAxis = "Y",
+		SlideFrom = 1,
+	},
 }
 
 Library.Theme = {
@@ -418,6 +526,7 @@ export type ToastObject = {
 	SetText: (self: ToastObject, Text: string) -> (),
 }
 
+-- Functions
 local function CalculateWindowSize()
 	local Camera = workspace.CurrentCamera
 
@@ -588,9 +697,6 @@ local function uuid()
 		.. "-" .. table.concat(hex, "", 11, 16)
 end
 
-local Maid = {}
-Maid.__index = Maid
-
 function Maid.new()
 	return setmetatable({ _list = {} }, Maid)
 end
@@ -622,9 +728,6 @@ function Maid:Destroy()
 	end
 	table.clear(self._list)
 end
-
-local ButtonElement = {}
-ButtonElement.__index = ButtonElement
 
 function ButtonElement.new(section, config: ButtonConfig): ButtonElement
 	local self = setmetatable({}, ButtonElement)
@@ -680,9 +783,6 @@ function ButtonElement:Destroy()
 		self.Frame:Destroy()
 	end
 end
-
-local SliderElement = {}
-SliderElement.__index = SliderElement
 
 function SliderElement.new(section, config: SliderConfig): SliderElement
 	local self = setmetatable({}, SliderElement)
@@ -911,9 +1011,6 @@ function SliderElement:Destroy()
 	end
 end
 
-local ToggleElement = {}
-ToggleElement.__index = ToggleElement
-
 function ToggleElement.new(section, config: ToggleConfig): ToggleElement
 	local self = setmetatable({}, ToggleElement)
 	self._maid = Maid.new()
@@ -1005,9 +1102,6 @@ function ToggleElement:Destroy()
 	end
 end
 
-local LabelElement = {}
-LabelElement.__index = LabelElement
-
 function LabelElement.new(section, config: LabelConfig): LabelElement
 	local self = setmetatable({}, LabelElement)
 	self._maid = Maid.new()
@@ -1051,9 +1145,6 @@ function LabelElement:Destroy()
 		self.Frame:Destroy()
 	end
 end
-
-local DropdownElement = {}
-DropdownElement.__index = DropdownElement
 
 function DropdownElement.new(section, config: DropdownConfig): DropdownElement
 	local self = setmetatable({}, DropdownElement)
@@ -1383,9 +1474,6 @@ function DropdownElement:Destroy()
 		self.Frame:Destroy()
 	end
 end
-
-local MultiSelectDropdownElement = {}
-MultiSelectDropdownElement.__index = MultiSelectDropdownElement
 
 function MultiSelectDropdownElement.new(section, config: MultiSelectDropdownConfig): MultiSelectDropdownElement
 	local self = setmetatable({}, MultiSelectDropdownElement)
@@ -1808,9 +1896,6 @@ function MultiSelectDropdownElement:Destroy()
 	end
 end
 
-local TextBoxElement = {}
-TextBoxElement.__index = TextBoxElement
-
 function TextBoxElement.new(section, config: TextBoxConfig): TextBoxElement
 	local self = setmetatable({}, TextBoxElement)
 	self._maid = Maid.new()
@@ -1963,9 +2048,6 @@ function TextBoxElement:Destroy()
 		self.Frame:Destroy()
 	end
 end
-
-local KeyInputElement = {}
-KeyInputElement.__index = KeyInputElement
 
 function KeyInputElement.new(section, config: KeyInputConfig): KeyInputElement
 	local self = setmetatable({}, KeyInputElement)
@@ -2165,9 +2247,6 @@ function KeyInputElement:Destroy()
 		self.Frame:Destroy()
 	end
 end
-
-local ColorPickerElement = {}
-ColorPickerElement.__index = ColorPickerElement
 
 function ColorPickerElement.new(section, config: ColorPickerConfig): ColorPickerElement
 	local self = setmetatable({}, ColorPickerElement)
@@ -2758,9 +2837,6 @@ function ColorPickerElement:Destroy()
 	end
 end
 
-local Section = {}
-Section.__index = Section
-
 function Section.new(tab, config: SectionConfig): SectionObject
 	local self = setmetatable({}, Section)
 	self._maid = Maid.new()
@@ -2956,9 +3032,6 @@ function Section:Destroy()
 	end
 end
 
-local Tab = {}
-Tab.__index = Tab
-
 function Tab.new(window, config: TabConfig): TabObject
 	local self = setmetatable({}, Tab)
 	self._maid = Maid.new()
@@ -3081,9 +3154,6 @@ function Tab:Destroy()
 	self._maid:Destroy()
 end
 
-local Window = {}
-Window.__index = Window
-
 function Window.new(config: WindowConfig): WindowObject
 	local self = setmetatable({}, Window)
 	self._maid = Maid.new()
@@ -3118,9 +3188,6 @@ function Window.new(config: WindowConfig): WindowObject
 		startVisible = not not config.StartVisible
 	end
 	self.IsOpen = startVisible
-
-	local player = Players.LocalPlayer
-	local playerGui = player:WaitForChild("PlayerGui")
 
 	if not self.Parent then
 		self.ScreenGui = Create("ScreenGui", {
@@ -3572,14 +3639,6 @@ end
 -- Toast Notification System
 -- ==========================================================================
 
-local TOAST_TYPE_COLOR_KEY = {
-	Library = "Accent",
-	Info = C3_FRGB(64, 145, 255),
-	Success = C3_FRGB(70, 200, 120),
-	Warning = C3_FRGB(255, 170, 60),
-	Error = C3_FRGB(255, 80, 80),
-}
-
 local function GetToastTypeColor(toastType)
 	local value = TOAST_TYPE_COLOR_KEY[toastType or "Library"]
 	if value == "Accent" then
@@ -3587,58 +3646,6 @@ local function GetToastTypeColor(toastType)
 	end
 	return value or COLORS.Accent
 end
-
--- Preset layout table: how each preset stack anchors, grows, and slides.
-local PRESET_LAYOUT = {
-	Top = {
-		AnchorPoint = Vector2.new(0.5, 0),
-		PositionFn = function(pad) return UD2_N(0.5, 0, 0, pad) end,
-		HorizontalAlignment = Enum.HorizontalAlignment.Center,
-		VerticalAlignment = Enum.VerticalAlignment.Top,
-		SlideAxis = "Y",
-		SlideFrom = -1, -- comes from above (negative Y offset)
-	},
-	TopLeft = {
-		AnchorPoint = Vector2.new(0, 0),
-		PositionFn = function(pad) return UD2_N(0, pad, 0, pad) end,
-		HorizontalAlignment = Enum.HorizontalAlignment.Left,
-		VerticalAlignment = Enum.VerticalAlignment.Top,
-		SlideAxis = "Y",
-		SlideFrom = -1,
-	},
-	TopRight = {
-		AnchorPoint = Vector2.new(1, 0),
-		PositionFn = function(pad) return UD2_N(1, -pad, 0, pad) end,
-		HorizontalAlignment = Enum.HorizontalAlignment.Right,
-		VerticalAlignment = Enum.VerticalAlignment.Top,
-		SlideAxis = "Y",
-		SlideFrom = -1,
-	},
-	Bottom = {
-		AnchorPoint = Vector2.new(0.5, 1),
-		PositionFn = function(pad) return UD2_N(0.5, 0, 1, -pad) end,
-		HorizontalAlignment = Enum.HorizontalAlignment.Center,
-		VerticalAlignment = Enum.VerticalAlignment.Bottom,
-		SlideAxis = "Y",
-		SlideFrom = 1, -- comes from below (positive Y offset)
-	},
-	BottomLeft = {
-		AnchorPoint = Vector2.new(0, 1),
-		PositionFn = function(pad) return UD2_N(0, pad, 1, -pad) end,
-		HorizontalAlignment = Enum.HorizontalAlignment.Left,
-		VerticalAlignment = Enum.VerticalAlignment.Bottom,
-		SlideAxis = "Y",
-		SlideFrom = 1,
-	},
-	BottomRight = {
-		AnchorPoint = Vector2.new(1, 1),
-		PositionFn = function(pad) return UD2_N(1, -pad, 1, -pad) end,
-		HorizontalAlignment = Enum.HorizontalAlignment.Right,
-		VerticalAlignment = Enum.VerticalAlignment.Bottom,
-		SlideAxis = "Y",
-		SlideFrom = 1,
-	},
-}
 
 local function MeasureToastWidth(text, textSize, maxContentWidth)
 	local ok, size = pcall(function()
@@ -3717,9 +3724,6 @@ local function RemoveFromStack(stack, toast)
 		end
 	end
 end
-
-local Toast = {}
-Toast.__index = Toast
 
 function Toast.new(window, config: ToastConfig)
 	config = config or {}
@@ -4108,8 +4112,6 @@ function Library:Window(config: WindowConfig): WindowObject
 end
 
 function Library:Notify(config: NotifyConfig)
-	local player = Players.LocalPlayer
-	local playerGui = player:WaitForChild("PlayerGui")
 	local notifGui = playerGui:FindFirstChild("NotificationUI")
 	if not notifGui then
 		notifGui = Create("ScreenGui", {
@@ -4243,9 +4245,6 @@ function Library:NewAuth(config: NewAuthConfig)
 			return
 		end
 	end
-
-	local player = Players.LocalPlayer
-	local playerGui = player:WaitForChild("PlayerGui")
 
 	local authGui = Create("ScreenGui", {
 		Name = "AuthUI",
@@ -4690,8 +4689,6 @@ function Library:Unload()
 	table.clear(GlobalMaidList)
 
 	local ok = pcall(function()
-		local player = Players.LocalPlayer
-		local playerGui = player and player:FindFirstChild("PlayerGui")
 		if playerGui then
 			local notifGui = playerGui:FindFirstChild("NotificationUI")
 			if notifGui then
