@@ -2132,17 +2132,31 @@ function OptionGridElement.new(section, config: OptionGridConfig): OptionGridEle
 		return opt.Color or COLORS.Element
 	end
 
-	local function refreshSelectionVisuals()
-		for _, opt in (options) do
-			local cell = cells[opt.Name]
-			if cell then
-				local stroke = cell:FindFirstChildOfClass("UIStroke")
-				local nowSelected = isSelected(opt.Name)
-				if stroke then
-					Tween(stroke, 0.15, { Color = nowSelected and COLORS.Accent or COLORS.Border, Thickness = nowSelected and 2 or 1 })
+	local function refreshSelectionVisuals(previousSelected)
+		local function updateCell(name)
+			local cell = cells[name]
+			if not cell then return end
+			local opt
+			for _, v in (options) do
+				if v.Name == name then
+					opt = v
+					break
 				end
-				Tween(cell, 0.15, { BackgroundColor3 = cellBaseColor(opt) })
 			end
+			if not opt then return end
+			local stroke = cell:FindFirstChildOfClass("UIStroke")
+			local nowSelected = isSelected(name)
+			if stroke then
+				Tween(stroke, 0.15, { Color = nowSelected and COLORS.Accent or COLORS.Border, Thickness = nowSelected and 2 or 1 })
+			end
+			Tween(cell, 0.15, { BackgroundColor3 = cellBaseColor(opt) })
+		end
+
+		if previousSelected then
+			updateCell(previousSelected)
+		end
+		if selected then
+			updateCell(selected)
 		end
 	end
 
@@ -2282,8 +2296,9 @@ function OptionGridElement.new(section, config: OptionGridConfig): OptionGridEle
 				end
 			end)
 			btn.MouseButton1Click:Connect(function()
+				local previousSelected = selected
 				selected = opt.Name
-				refreshSelectionVisuals()
+				refreshSelectionVisuals(previousSelected)
 				updatePreview()
 				closeGrid()
 				if config.Callback then
@@ -2346,13 +2361,15 @@ function OptionGridElement.new(section, config: OptionGridConfig): OptionGridEle
 	self._options = options
 	self._getSelected = function() return selected end
 	self._setSelected = function(name)
+		local previousSelected = selected
 		selected = name
-		refreshSelectionVisuals()
+		refreshSelectionVisuals(previousSelected)
 		updatePreview()
 	end
 	self._clearSelected = function()
+		local previousSelected = selected
 		selected = nil
-		refreshSelectionVisuals()
+		refreshSelectionVisuals(previousSelected)
 		updatePreview()
 	end
 	self._rebuildGrid = function()
