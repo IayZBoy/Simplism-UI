@@ -556,6 +556,11 @@ optionGrid:AddOption({
 	Icon = "rbxassetid://1234567892",
 })
 
+optionGrid:AddOptions({
+	{ Name = "Storm Sword", Icon = "rbxassetid://1234567893" },
+	{ Name = "Shadow Sword", Icon = "rbxassetid://1234567894" },
+})
+
 optionGrid:RemoveOption("Ice Sword")
 optionGrid:SetSelectedOption("Fire Sword")
 local selected = optionGrid:GetSelected()
@@ -598,6 +603,7 @@ Each `Options` entry:
 | ------------------- | --------------- | --------- | ---------------- |
 | `SetVisible`        | `boolean`       | `nil`     | No               |
 | `AddOption`         | `OptionGridItem` | `nil`    | No               |
+| `AddOptions`        | `{OptionGridItem}` | `nil`  | No — adds many options and rebuilds the grid once; use this instead of calling `AddOption` in a loop for large batches |
 | `RemoveOption`      | `string`        | `nil`     | No — if the removed option was selected, selection clears silently |
 | `SetSelectedOption` | `string`        | `nil`     | Yes, if the option exists (silently ignored otherwise) |
 | `GetSelected`       | None            | `string?` | No               |
@@ -982,3 +988,5 @@ section:AddButton({
 **Duplicate dropdown option strings.** Options are used as internal lookup keys — keep them unique, especially when using search, multi-select, or dynamic option changes.
 
 **Theme value types aren't validated.** `SetTheme` checks for unknown keys but not that values are actually `Color3`s; bad values can cause errors later when a tween or property assignment runs.
+
+**`AddOption` in a loop is O(n²).** Each `AddOption` call rebuilds the entire grid (destroying and recreating every existing cell), so adding options one at a time in a loop costs quadratic time as the list grows. Use `AddOptions` to add many options in one rebuild.
