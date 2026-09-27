@@ -96,6 +96,9 @@ DropdownElement.__index = DropdownElement
 local MultiSelectDropdownElement = {}
 MultiSelectDropdownElement.__index = MultiSelectDropdownElement
 
+local OptionGridElement = {}
+OptionGridElement.__index = OptionGridElement
+
 local TextBoxElement = {}
 TextBoxElement.__index = TextBoxElement
 
@@ -324,6 +327,37 @@ type MultiSelectDropdownElement = {
 	GetSelected: (self: MultiSelectDropdownElement) -> { string },
 	ClearSelected: (self: MultiSelectDropdownElement) -> (),
 	Destroy: (self: MultiSelectDropdownElement) -> (),
+}
+
+type OptionGridItem = {
+	Name: string,
+	Icon: string?,
+	Color: Color3?,
+}
+
+type OptionGridConfig = {
+	Text: string?,
+	Options: { OptionGridItem }?,
+	Default: string?,
+	Searchable: boolean?,
+	CellSize: UDim2?,
+	HorizontalAlignment: string?,
+	VerticalAlignment: string?,
+	FillDirectionX: string?,
+	FillDirectionY: string?,
+	MaxCellsX: number?,
+	ListOrder: number?,
+	Callback: ((string) -> ())?,
+}
+
+type OptionGridElement = {
+	Frame: Frame,
+	SetVisible: (self: OptionGridElement, visible: boolean) -> (),
+	AddOption: (self: OptionGridElement, option: OptionGridItem) -> (),
+	RemoveOption: (self: OptionGridElement, name: string) -> (),
+	SetSelectedOption: (self: OptionGridElement, name: string) -> (),
+	GetSelected: (self: OptionGridElement) -> string?,
+	Destroy: (self: OptionGridElement) -> (),
 }
 
 type TextBoxConfig = {
@@ -1896,6 +1930,501 @@ function MultiSelectDropdownElement:Destroy()
 	end
 end
 
+function OptionGridElement.new(section, config: OptionGridConfig): OptionGridElement
+	local self = setmetatable({}, OptionGridElement)
+	self._maid = Maid.new()
+
+	local options = {}
+	for _, v in (config.Options or {}) do
+		table.insert(options, v)
+	end
+	local selected = nil
+	local isOpen = false
+	local searchable = config.Searchable ~= nil and config.Searchable or false
+	local searchQuery = ""
+
+	local cellSize = config.CellSize or UD2_N(0, 64, 0, 64)
+	local previewSize = cellSize
+	local maxCellsX = config.MaxCellsX
+
+	local hAlignMap = {
+		Left = Enum.HorizontalAlignment.Left,
+		Center = Enum.HorizontalAlignment.Center,
+		Right = Enum.HorizontalAlignment.Right,
+	}
+	local vAlignMap = {
+		Top = Enum.VerticalAlignment.Top,
+		Center = Enum.VerticalAlignment.Center,
+		Bottom = Enum.VerticalAlignment.Bottom,
+	}
+	local horizontalAlignment = hAlignMap[config.HorizontalAlignment] or Enum.HorizontalAlignment.Left
+	local verticalAlignment = vAlignMap[config.VerticalAlignment] or Enum.VerticalAlignment.Top
+
+	local fillFromRight = config.FillDirectionX == "Left"
+	local fillFromBottom = config.FillDirectionY == "Up"
+	local startCorner
+	if fillFromBottom and fillFromRight then
+		startCorner = Enum.StartCorner.BottomRight
+	elseif fillFromBottom then
+		startCorner = Enum.StartCorner.BottomLeft
+	elseif fillFromRight then
+		startCorner = Enum.StartCorner.TopRight
+	else
+		startCorner = Enum.StartCorner.TopLeft
+	end
+
+	local previewPadding = 6
+	local previewWidth = previewSize.X.Offset
+	local previewHeight = previewSize.Y.Offset
+	local headerHeight = math.max(36, previewHeight + previewPadding * 2)
+
+	local frame = Create("Frame", {
+		Name = "OptionGrid",
+		Size = UD2_N(1, 0, 0, headerHeight),
+		BackgroundColor3 = COLORS.Element,
+		BorderSizePixel = 0,
+		LayoutOrder = config.ListOrder or 0,
+		ClipsDescendants = false,
+		Parent = section.ContentHolder,
+	})
+	AddCorner(frame, 8)
+
+	local mainBtn = Create("TextButton", {
+		Size = UD2_N(1, 0, 0, headerHeight),
+		BackgroundTransparency = 1,
+		Text = "",
+		Parent = frame,
+	})
+
+	local label = Create("TextLabel", {
+		Size = UD2_N(1, -(previewWidth + 32), 1, 0),
+		Position = UD2_N(0, 12, 0, 0),
+		BackgroundTransparency = 1,
+		Text = config.Text or "Option Grid",
+		TextColor3 = COLORS.Text,
+		TextSize = 13,
+		Font = Enum.Font.GothamMedium,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Center,
+		Parent = mainBtn,
+	})
+
+	local previewCell = Create("Frame", {
+		Name = "PreviewCell",
+		Size = UD2_N(0, previewWidth, 0, previewHeight),
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UD2_N(1, -8, 0.5, 0),
+		BackgroundColor3 = COLORS.Element,
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+		Parent = mainBtn,
+	})
+	AddCorner(previewCell, 6)
+	local previewStroke = AddStroke(previewCell, COLORS.Border, 1)
+
+
+
+	local previewIcon = Create("ImageLabel", {
+		Size = UD2_N(1, -8, 1, -18),
+		Position = UD2_N(0.5, 0, 0, 4),
+		AnchorPoint = Vector2.new(0.5, 0),
+		BackgroundTransparency = 1,
+		Image = "",
+		ScaleType = Enum.ScaleType.Fit,
+		Visible = false,
+		Parent = previewCell,
+	})
+
+	local previewLabel = Create("TextLabel", {
+		Size = UD2_N(1, -6, 1, -4),
+		Position = UD2_N(0.5, 0, 1, -2),
+		AnchorPoint = Vector2.new(0.5, 1),
+		BackgroundTransparency = 1,
+		Text = "None",
+		TextColor3 = COLORS.TextMuted,
+		TextSize = 11,
+		Font = Enum.Font.GothamMedium,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Parent = previewCell,
+	})
+
+	local dropFrame = Create("Frame", {
+		Name = "DropFrame",
+		Size = UD2_N(1, 0, 0, 0),
+		Position = UD2_N(0, 0, 0, headerHeight + 2),
+		BackgroundColor3 = COLORS.DropdownBg,
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+		ZIndex = 10,
+		Visible = false,
+		Parent = frame,
+	})
+	AddCorner(dropFrame, 8)
+	local dropStroke = AddStroke(dropFrame, COLORS.Border, 1)
+	dropStroke.Transparency = 1
+
+	local searchBox
+	if searchable then
+		local searchHolder = Create("Frame", {
+			Size = UD2_N(1, -8, 0, 30),
+			Position = UD2_N(0, 4, 0, 4),
+			BackgroundColor3 = COLORS.InputBg,
+			BorderSizePixel = 0,
+			ZIndex = 11,
+			Parent = dropFrame,
+		})
+		AddCorner(searchHolder, 6)
+		AddStroke(searchHolder, COLORS.Border, 1)
+
+		searchBox = Create("TextBox", {
+			Size = UD2_N(1, -12, 1, 0),
+			Position = UD2_N(0, 6, 0, 0),
+			BackgroundTransparency = 1,
+			Text = "",
+			PlaceholderText = "Search...",
+			PlaceholderColor3 = COLORS.TextMuted,
+			TextColor3 = COLORS.Text,
+			TextSize = 12,
+			Font = Enum.Font.GothamMedium,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			ClearTextOnFocus = false,
+			ZIndex = 12,
+			Parent = searchHolder,
+		})
+	end
+
+	local gridScroll = Create("ScrollingFrame", {
+		Size = searchable and UD2_N(1, 0, 1, -38) or UD2_N(1, 0, 1, 0),
+		Position = searchable and UD2_N(0, 0, 0, 38) or UD2_N(0, 0, 0, 0),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 4,
+		ScrollBarImageColor3 = COLORS.Accent,
+		CanvasSize = UD2_N(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ZIndex = 10,
+		Parent = dropFrame,
+	})
+	AddPadding(gridScroll, 4)
+
+	local gridLayout = Create("UIGridLayout", {
+		CellSize = cellSize,
+		CellPadding = UD2_N(0, 6, 0, 6),
+		FillDirection = Enum.FillDirection.Horizontal,
+		FillDirectionMaxCells = maxCellsX or 0,
+		HorizontalAlignment = horizontalAlignment,
+		VerticalAlignment = verticalAlignment,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		StartCorner = startCorner,
+		Parent = gridScroll,
+	})
+
+	local cells = {}
+	local MAX_OPEN_HEIGHT = 200
+
+	local function isSelected(name)
+		return selected == name
+	end
+
+	local function cellBaseColor(opt)
+		return opt.Color or COLORS.Element
+	end
+
+	local function refreshSelectionVisuals()
+		for _, opt in (options) do
+			local cell = cells[opt.Name]
+			if cell then
+				local stroke = cell:FindFirstChildOfClass("UIStroke")
+				local nowSelected = isSelected(opt.Name)
+				if stroke then
+					Tween(stroke, 0.15, { Color = nowSelected and COLORS.Accent or COLORS.Border, Thickness = nowSelected and 2 or 1 })
+				end
+				Tween(cell, 0.15, { BackgroundColor3 = cellBaseColor(opt) })
+			end
+		end
+	end
+
+	local function updatePreview()
+		if selected then
+			local opt
+			for _, v in (options) do
+				if v.Name == selected then
+					opt = v
+					break
+				end
+			end
+			if opt then
+				previewLabel.Text = opt.Icon and "" or opt.Name
+				previewLabel.Visible = opt.Icon == nil
+				previewIcon.Image = opt.Icon or ""
+				previewIcon.Visible = opt.Icon ~= nil
+				previewCell.BackgroundColor3 = opt.Color or COLORS.Element
+				return
+			end
+		end
+		previewLabel.Text = "None"
+		previewLabel.Visible = true
+		previewLabel.TextColor3 = COLORS.TextMuted
+		previewIcon.Visible = false
+		previewCell.BackgroundColor3 = COLORS.Element
+	end
+
+	local function filterOptions()
+		local visibleCount = 0
+		for name, cell in (cells) do
+			if searchQuery == "" or name:lower():find(searchQuery:lower(), 1, true) then
+				cell.Visible = true
+				visibleCount = visibleCount + 1
+			else
+				cell.Visible = false
+			end
+		end
+		return visibleCount
+	end
+
+	local function closeGrid()
+		isOpen = false
+		if searchable then
+			searchBox.Text = ""
+			searchQuery = ""
+		end
+		Tween(frame, 0.25, { Size = UD2_N(1, 0, 0, headerHeight) })
+		Tween(dropFrame, 0.25, { Size = UD2_N(1, 0, 0, 0) })
+		Tween(dropStroke, 0.25, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		task.delay(0.25, function()
+			if not isOpen then
+				dropFrame.Visible = false
+			end
+		end)
+	end
+
+	local function rebuildGrid()
+		for _, child in (gridScroll:GetChildren()) do
+			if child:IsA("Frame") and child.Name == "OptionCell" then
+				child:Destroy()
+			end
+		end
+		cells = {}
+
+		for _, opt in (options) do
+			local cell = Create("Frame", {
+				Name = "OptionCell",
+				BackgroundColor3 = cellBaseColor(opt),
+				BorderSizePixel = 0,
+				ZIndex = 11,
+				Parent = gridScroll,
+			})
+			AddCorner(cell, 5)
+			AddStroke(cell, isSelected(opt.Name) and COLORS.Accent or COLORS.Border, isSelected(opt.Name) and 2 or 1)
+
+			if opt.Icon then
+				Create("ImageLabel", {
+					Size = UD2_N(1, -12, 1, -24),
+					Position = UD2_N(0.5, 0, 0, 6),
+					AnchorPoint = Vector2.new(0.5, 0),
+					BackgroundTransparency = 1,
+					Image = opt.Icon,
+					ScaleType = Enum.ScaleType.Fit,
+					ZIndex = 12,
+					Parent = cell,
+				})
+				Create("TextLabel", {
+					Size = UD2_N(1, -8, 0, 16),
+					Position = UD2_N(0.5, 0, 1, -18),
+					AnchorPoint = Vector2.new(0.5, 0),
+					BackgroundTransparency = 1,
+					Text = opt.Name,
+					TextColor3 = COLORS.Text,
+					TextSize = 11,
+					Font = Enum.Font.GothamMedium,
+					TextXAlignment = Enum.TextXAlignment.Center,
+					TextTruncate = Enum.TextTruncate.AtEnd,
+					ZIndex = 12,
+					Parent = cell,
+				})
+			else
+				Create("TextLabel", {
+					Size = UD2_N(1, -8, 1, -8),
+					Position = UD2_N(0.5, 0, 0.5, 0),
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					BackgroundTransparency = 1,
+					Text = opt.Name,
+					TextColor3 = COLORS.Text,
+					TextSize = 12,
+					Font = Enum.Font.GothamMedium,
+					TextWrapped = true,
+					TextXAlignment = Enum.TextXAlignment.Center,
+					TextYAlignment = Enum.TextYAlignment.Center,
+					ZIndex = 12,
+					Parent = cell,
+				})
+			end
+
+			local btn = Create("TextButton", {
+				Size = UD2_N(1, 0, 1, 0),
+				BackgroundTransparency = 1,
+				Text = "",
+				AutoButtonColor = false,
+				ZIndex = 13,
+				Parent = cell,
+			})
+
+			btn.MouseEnter:Connect(function()
+				if not isSelected(opt.Name) then
+					Tween(cell, 0.15, { BackgroundColor3 = COLORS.ElementHover })
+				end
+			end)
+			btn.MouseLeave:Connect(function()
+				if not isSelected(opt.Name) then
+					Tween(cell, 0.15, { BackgroundColor3 = cellBaseColor(opt) })
+				end
+			end)
+			btn.MouseButton1Click:Connect(function()
+				selected = opt.Name
+				refreshSelectionVisuals()
+				updatePreview()
+				closeGrid()
+				if config.Callback then
+					config.Callback(opt.Name)
+				end
+			end)
+
+			cells[opt.Name] = cell
+		end
+		filterOptions()
+	end
+
+	rebuildGrid()
+	updatePreview()
+
+	if searchable and searchBox then
+		self._maid:Add(searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+			searchQuery = searchBox.Text
+			filterOptions()
+		end))
+	end
+
+	self._maid:Add(mainBtn.MouseButton1Click:Connect(function()
+		isOpen = not isOpen
+		if isOpen then
+			if searchable then
+				searchBox.Text = ""
+				searchQuery = ""
+				filterOptions()
+			end
+
+			local visibleCount = 0
+			for _, cell in (cells) do
+				if cell.Visible then
+					visibleCount = visibleCount + 1
+				end
+			end
+			local columns = maxCellsX or math.max(1, math.floor((frame.AbsoluteSize.X - 8) / (cellSize.X.Offset + 6)))
+			local rows = math.max(1, math.ceil(visibleCount / columns))
+			local contentHeight = rows * cellSize.Y.Offset + math.max(0, rows - 1) * 6 + 8
+			local baseHeight = searchable and 38 or 0
+			local totalHeight = math.min(baseHeight + contentHeight, (searchable and 38 or 0) + MAX_OPEN_HEIGHT)
+
+			dropFrame.Visible = true
+			dropFrame.Size = UD2_N(1, 0, 0, 0)
+			dropStroke.Transparency = 1
+			Tween(frame, 0.3, { Size = UD2_N(1, 0, 0, headerHeight + totalHeight + 2) })
+			Tween(dropFrame, 0.3, { Size = UD2_N(1, 0, 0, totalHeight) })
+			Tween(dropStroke, 0.3, { Transparency = 0 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			if searchable then
+				task.wait(0.1)
+				searchBox:CaptureFocus()
+			end
+		else
+			closeGrid()
+		end
+	end))
+
+	self.Frame = frame
+	self._options = options
+	self._getSelected = function() return selected end
+	self._setSelected = function(name)
+		selected = name
+		refreshSelectionVisuals()
+		updatePreview()
+	end
+	self._clearSelected = function()
+		selected = nil
+		refreshSelectionVisuals()
+		updatePreview()
+	end
+	self._rebuildGrid = function()
+		rebuildGrid()
+		updatePreview()
+	end
+	self._configText = config.Text
+	self._configCallback = config.Callback
+
+	if config.Default ~= nil then
+		local found = false
+		for _, v in (options) do
+			if v.Name == config.Default then
+				found = true
+				break
+			end
+		end
+		if found then
+			self:SetSelectedOption(config.Default)
+		else
+			warn("[OptionGrid] Default does not match any option:", config.Default)
+		end
+	end
+
+	return self
+end
+
+function OptionGridElement:SetVisible(visible: boolean)
+	self.Frame.Visible = visible
+end
+
+function OptionGridElement:AddOption(option: OptionGridItem)
+	if not option or not option.Name then return end
+	table.insert(self._options, option)
+	self._rebuildGrid()
+end
+
+function OptionGridElement:RemoveOption(name: string)
+	for i, v in (self._options) do
+		if v.Name == name then
+			table.remove(self._options, i)
+			break
+		end
+	end
+	if self._getSelected() == name then
+		self._clearSelected()
+	end
+	self._rebuildGrid()
+end
+
+function OptionGridElement:SetSelectedOption(name: string)
+	for _, v in (self._options) do
+		if v.Name == name then
+			self._setSelected(name)
+			if self._configCallback then
+				self._configCallback(name)
+			end
+			return
+		end
+	end
+end
+
+function OptionGridElement:GetSelected(): string?
+	return self._getSelected()
+end
+
+function OptionGridElement:Destroy()
+	self._maid:Destroy()
+	if self.Frame and self.Frame.Parent then
+		self.Frame:Destroy()
+	end
+end
+
 function TextBoxElement.new(section, config: TextBoxConfig): TextBoxElement
 	local self = setmetatable({}, TextBoxElement)
 	self._maid = Maid.new()
@@ -2998,6 +3527,12 @@ end
 
 function Section:AddMultiSelectDropdown(config: MultiSelectDropdownConfig): MultiSelectDropdownElement
 	local element = MultiSelectDropdownElement.new(self, config)
+	table.insert(self.Elements, element)
+	return element
+end
+
+function Section:AddOptionGrid(config: OptionGridConfig): OptionGridElement
+	local element = OptionGridElement.new(self, config)
 	table.insert(self.Elements, element)
 	return element
 end
