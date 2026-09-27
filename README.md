@@ -22,6 +22,7 @@ It provides animated windows, scrollable tabs and sections, common settings cont
   - [Label](#label)
   - [Dropdown](#dropdown)
   - [Multi-Select Dropdown](#multi-select-dropdown)
+  - [Option Grid](#option-grid)
   - [TextBox](#textbox)
   - [Keybind](#keybind)
   - [Color Picker](#color-picker)
@@ -264,6 +265,7 @@ local section = generalTab:NewSection({
 | `AddLabel(config)`               | `LabelElement`                 |
 | `AddDropdown(config)`            | `DropdownElement`              |
 | `AddMultiSelectDropdown(config)` | `MultiSelectDropdownElement`   |
+| `AddOptionGrid(config)`          | `OptionGridElement`             |
 | `AddTextBox(config)`             | `TextBoxElement`                |
 | `AddKeybind(config)`             | `KeyInputElement`               |
 | `AddColorPicker(config)`         | `ColorPickerElement`             |
@@ -294,6 +296,7 @@ All element constructors take a configuration table. Most elements expose a root
 | Label        | None              | N/A                                    | N/A                                    |
 | Dropdown     | Yes               | `SetSelectedOption` fires             | **Yes**, if valid                     |
 | Multi-select | Yes               | `SetSelected` / `ClearSelected` fire  | **Yes**, if valid                     |
+| Option Grid  | Yes               | `SetSelectedOption` fires             | **Yes**, if valid                     |
 | TextBox      | On focus loss     | `SetText` fires                       | No                                     |
 | Keybind      | Binding changes   | `SetInput` / `ClearInput` fire        | No                                     |
 | Color picker | Color changes     | `SetColor` fires                      | No                                     |
@@ -524,6 +527,83 @@ Once `MaxSelected` is reached, clicking an unselected option doesn't add it — 
 `SetSelected` replaces the whole selection: unknown values are ignored and it stops adding once `MaxSelected` is hit. It does not deduplicate its input, so pass a list of unique values.
 
 **`GetSelected()` returns the library's actual internal table, and the callback receives that same table** — clone it before mutating (`table.clone(dropdown:GetSelected())`). Mutating it directly bypasses `MaxSelected`, option validation, and UI updates.
+
+## Option Grid
+
+```lua
+local optionGrid = section:AddOptionGrid({
+	Text = "Sword Selector",
+	Options = {
+		{
+			Name = "Base Sword",
+			Icon = "rbxassetid://1234567890",
+			Color = Color3.fromRGB(60, 60, 80),
+		},
+		{
+			Name = "Fire Sword",
+			Icon = "rbxassetid://1234567891",
+		},
+	},
+	Default = "Base Sword",
+	Searchable = true,
+	Callback = function(name)
+		SetAnimation(name)
+	end,
+})
+
+optionGrid:AddOption({
+	Name = "Ice Sword",
+	Icon = "rbxassetid://1234567892",
+})
+
+optionGrid:RemoveOption("Ice Sword")
+optionGrid:SetSelectedOption("Fire Sword")
+local selected = optionGrid:GetSelected()
+```
+
+### Configuration
+
+| Field                  | Type                 | Default        | Description                          |
+| ---------------------- | -------------------- | ---------------- | --------------------------------------- |
+| `Text`                 | `string?`            | `"Option Grid"`  | Title shown above the grid            |
+| `Options`              | `{OptionGridItem}`   | `{}` if omitted  | Available options, each with `Name`, optional `Icon`, and optional `Color` |
+| `Default`              | `string?`            | None             | Initial selection; must match a `Name` in `Options` |
+| `Searchable`           | `boolean?`           | `false`          | Adds a search field above the grid, same matching as Dropdown/Multi-Select |
+| `CellSize`             | `UDim2?`             | Auto-fit to available width | Fixed cell size; treated as absolute (see Layout below) |
+| `HorizontalAlignment`  | `"Left" \| "Center" \| "Right"?` | `"Left"` | Grid's horizontal alignment within the section |
+| `VerticalAlignment`    | `"Top" \| "Center" \| "Bottom"?` | `"Top"`  | Grid's vertical alignment within the section |
+| `FillDirectionX`       | `"Left" \| "Right"?` | `"Right"`        | Direction cells fill across a row      |
+| `FillDirectionY`       | `"Up" \| "Down"?`    | `"Down"`         | Direction rows stack                   |
+| `MaxCellsX`            | `number?`            | None             | Maximum columns per row (see Layout below) |
+| `ListOrder`            | `number?`            | `0`              | Layout order                            |
+| `Callback`             | `((string) -> ())?`  | None (required)  | Receives the selected option's `Name`  |
+
+Each `Options` entry:
+
+| Field   | Type      | Default                              | Description                              |
+| ------- | --------- | --------------------------------------- | ------------------------------------------- |
+| `Name`  | `string`  | Required                                | Unique identifier and display text; used as the lookup key for `AddOption`/`RemoveOption`/`SetSelectedOption`, so keep values unique |
+| `Icon`  | `string?` | None                                     | Asset ID for the cell's image. If present, `Name` renders as a label docked to the bottom-center of the cell. If absent, `Name` renders centered in the cell instead |
+| `Color` | `Color3?` | Theme `Element` color                   | Cell background color                     |
+
+**A valid `Default` invokes `Callback` during construction** (same construction-order caveat as the other dropdowns); an unmatched `Default` logs a warning and leaves the grid with nothing selected rather than erroring.
+
+### Layout
+
+`MaxCellsX` takes priority over `CellSize`'s natural fit — the grid wraps early to respect that column count rather than expanding cells to fill the row. `CellSize` is otherwise absolute; it only shrinks if the available space can't fit even one full row at that size (e.g. on a narrow viewport).
+
+### Methods
+
+| Method              | Parameters      | Returns   | Fires callback? |
+| ------------------- | --------------- | --------- | ---------------- |
+| `SetVisible`        | `boolean`       | `nil`     | No               |
+| `AddOption`         | `OptionGridItem` | `nil`    | No               |
+| `RemoveOption`      | `string`        | `nil`     | No — if the removed option was selected, selection clears silently |
+| `SetSelectedOption` | `string`        | `nil`     | Yes, if the option exists (silently ignored otherwise) |
+| `GetSelected`       | None            | `string?` | No               |
+| `Destroy`           | None            | `nil`     | —                |
+
+When `Searchable = true`, matching is case-insensitive substring search, same as Dropdown.
 
 ## TextBox
 
