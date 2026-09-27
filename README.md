@@ -2,7 +2,9 @@
 
 SimplismUI is a client-side Roblox Luau UI library built around a straightforward hierarchy:
 
-**Library → Window → Tab → Section → Elements**
+**Library → Window → Tab → Column → Section → Elements**
+
+Tabs default to one column; `tab:NewSection(...)` creates a section in column 1.
 
 It provides animated windows, scrollable tabs and sections, common settings controls, searchable and multi-select dropdowns, keybinds, a full color picker, notifications, theming, preset colors, and an optional key-authentication interface.
 
@@ -41,7 +43,9 @@ It provides animated windows, scrollable tabs and sections, common settings cont
 - Draggable, animated, responsive windows (or fixed-size)
 - Show, hide, toggle, and minimize controls, with an optional rebindable toggle key
 - External visibility-button integration
-- Scrolling tab bar and tab content, collapsible sections, ordered elements via `ListOrder`
+- Scrolling tab bar and responsive multi-column tabs with indexed section creation
+- Collapsible sections and ordered elements via `ListOrder`
+- Option grids with responsive square cells or custom `UDim` dimensions
 - Buttons, sliders, toggles, labels, single/multi-select dropdowns (with search), text boxes, keybinds
 - HSV/RGB/HEX color picker with configurable presets
 - Window-local toast notifications and global notifications
@@ -209,20 +213,53 @@ For a `TextButton`, SimplismUI updates its `Text`. For an `ImageButton`, it dims
 ```lua
 local generalTab = window:AddTab({
 	Title = "General",
+	Columns = 3,
 })
 ```
 
 ### Configuration
 
-| Field   | Type      | Default |
-| ------- | --------- | ------- |
-| `Title` | `string?` | `"Tab"` |
+| Field | Type | Default | Description |
+| ----- | ---- | ------- | ----------- |
+| `Title` | `string?` | `"Tab"` | Tab title |
+| `Columns` | `number?` | `1` | Positive finite integer; creates this many columns |
+| `MaxColumnWidth` | `UDim?` | None | Caps each column's width, subject to the minimum width; scale is relative to `window.ContentArea.AbsoluteSize.X` |
+
+### Columns and responsive sizing
+
+Use one-based indexing to choose a column. `tab:NewSection(config)` is equivalent to `tab[1]:NewSection(config)`:
+
+```lua
+local controls = generalTab:NewSection({ Title = "Controls" })
+local inputs = generalTab[2]:NewSection({ Title = "Inputs" })
+local selection = generalTab[3]:NewSection({ Title = "Selection" })
+
+controls:AddToggle({ Text = "Enabled", Default = true })
+inputs:AddTextBox({ Text = "Name" })
+selection:AddOptionGrid({
+	Text = "Mode",
+	CellsInFillDirection = 3,
+	Options = {
+		{ Name = "Normal" },
+		{ Name = "Fast" },
+		{ Name = "Precise" },
+	},
+})
+```
+
+Columns share the tab's scroll frame and stack their own sections vertically. Their widths update when the content area or scroll viewport resizes. Available width is divided equally after subtracting 8-pixel outer padding on each side and 8-pixel gaps between columns. Each column has a minimum width of `math.max(200, window.ContentArea.AbsoluteSize.X / 2.5)`.
+
+`MaxColumnWidth` resolves to `contentWidth * Scale + Offset` and caps the calculated width. The minimum takes precedence if that cap is smaller. For example, `MaxColumnWidth = UDim.new(0, 400)` limits columns to 400 pixels only when the minimum permits it.
+
+The tab scroll frame uses `AutomaticCanvasSize = Enum.AutomaticSize.XY` and `ScrollingDirection = Enum.ScrollingDirection.XY` when there are more than two columns or the combined widths, gaps, and padding exceed the viewport. Otherwise both use `Y`. The viewport itself stays fixed; its `AutomaticSize` is not changed.
+
+Valid indices run from `1` through `Columns`; indexing does not create additional columns. Each column exposes `Index`, `Frame`, `Tab`, and `NewSection(config)`. All sections remain tracked in `tab.Sections`, and `section.Tab` still refers to the owning tab. There is no public column-count setter.
 
 ### Methods
 
 | Method                | Parameters      | Returns         | Description                                    |
 | --------------------- | --------------- | --------------- | ----------------------------------------------- |
-| `NewSection(config)`  | `SectionConfig` | `SectionObject` | Creates a section                              |
+| `NewSection(config)`  | `SectionConfig` | `SectionObject` | Creates a section in column 1                  |
 | `SetActive(active)`   | `boolean`       | `nil`           | Changes this tab's own active/visual state only — does not update `window.ActiveTab`; prefer `window:SwitchTab(tab)` for normal navigation |
 | `SetVisible(visible)` | `boolean`       | `nil`           | Shows or hides the tab                         |
 | `Destroy()`           | None            | `nil`           | Cleans up sections and managed tab connections |
@@ -533,6 +570,7 @@ Once `MaxSelected` is reached, clicking an unselected option doesn't add it — 
 ```lua
 local optionGrid = section:AddOptionGrid({
 	Text = "Sword Selector",
+	CellsInFillDirection = 3,
 	Options = {
 		{
 			Name = "Base Sword",
@@ -547,7 +585,7 @@ local optionGrid = section:AddOptionGrid({
 	Default = "Base Sword",
 	Searchable = true,
 	Callback = function(name)
-		SetAnimation(name)
+		print(name)
 	end,
 })
 
@@ -574,14 +612,16 @@ local selected = optionGrid:GetSelected()
 | `Options`              | `{OptionGridItem}`   | `{}` if omitted  | Available options, each with `Name`, optional `Icon`, and optional `Color` |
 | `Default`              | `string?`            | None             | Initial selection; must match a `Name` in `Options` |
 | `Searchable`           | `boolean?`           | `false`          | Adds a search field above the grid, same matching as Dropdown/Multi-Select |
-| `CellSize`             | `UDim2?`             | Auto-fit to available width | Fixed cell size; treated as absolute (see Layout below) |
+| `CellSizeX` | `UDim?` | `UDim.new(0, 64)` | Cell width; overridden by `CellsInFillDirection` |
+| `CellSizeY` | `UDim?` | `UDim.new(0, 64)` without automatic sizing; otherwise matches computed width | Cell height; an explicit value overrides automatic square sizing |
+| `CellsInFillDirection` | `number?` | None | Positive finite integer; automatically fits this many cells across a row and overrides `MaxCellsX` |
 | `HorizontalAlignment`  | `"Left" \| "Center" \| "Right"?` | `"Left"` | Grid's horizontal alignment within the section |
 | `VerticalAlignment`    | `"Top" \| "Center" \| "Bottom"?` | `"Top"`  | Grid's vertical alignment within the section |
 | `FillDirectionX`       | `"Left" \| "Right"?` | `"Right"`        | Direction cells fill across a row      |
 | `FillDirectionY`       | `"Up" \| "Down"?`    | `"Down"`         | Direction rows stack                   |
 | `MaxCellsX`            | `number?`            | None             | Maximum columns per row (see Layout below) |
 | `ListOrder`            | `number?`            | `0`              | Layout order                            |
-| `Callback`             | `((string) -> ())?`  | None (required)  | Receives the selected option's `Name`  |
+| `Callback`             | `((string) -> ())?`  | None  | Receives the selected option's `Name`  |
 
 Each `Options` entry:
 
@@ -595,7 +635,46 @@ Each `Options` entry:
 
 ### Layout
 
-`MaxCellsX` takes priority over `CellSize`'s natural fit — the grid wraps early to respect that column count rather than expanding cells to fill the row. `CellSize` is otherwise absolute; it only shrinks if the available space can't fit even one full row at that size (e.g. on a narrow viewport).
+The grid fills horizontally. `FillDirectionX` and `FillDirectionY` select the starting corner and direction; they do not switch the layout to vertical filling.
+
+With `CellsInFillDirection = n`, cell width is calculated as `(gridWidth - 8 - 6 * (n - 1)) / n`, with a minimum of 1 pixel. The grid has 4-pixel outer padding on each side and 6-pixel gaps. Width calculations use the scroll frame's full width, independently of scrollbar visibility, so a scrollbar appearing cannot repeatedly shrink and enlarge square cells. Extremely narrow containers cannot fit arbitrary counts once cells reach the 1-pixel minimum.
+
+When `CellSizeY` is omitted, automatic sizing makes cells square and updates both dimensions on resize. Provide `CellSizeY` to keep automatic widths with a custom height:
+
+```lua
+local flatGrid = section:AddOptionGrid({
+	Text = "Mode",
+	CellsInFillDirection = 3,
+	CellSizeY = UDim.new(0, 28),
+	Options = {
+		{ Name = "Normal" },
+		{ Name = "Fast" },
+		{ Name = "Precise" },
+	},
+})
+```
+
+Without `CellsInFillDirection`, `CellSizeX` and `CellSizeY` supply the `UIGridLayout.CellSize` dimensions directly, including their scale and offset components. `MaxCellsX` only limits the number of cells per row; it does not stretch cells. For manually sized rectangular cells:
+
+```lua
+local customGrid = section:AddOptionGrid({
+	Text = "Custom Cells",
+	CellSizeX = UDim.new(0, 90),
+	CellSizeY = UDim.new(0, 28),
+	MaxCellsX = 3,
+	Options = {
+		{ Name = "One" },
+		{ Name = "Two" },
+		{ Name = "Three" },
+	},
+})
+```
+
+The expanded cell viewport is capped at 200 pixels high, with an additional 38 pixels for search when enabled. Offset-only heights use the calculated row count, gaps, and outer padding; a nonzero `CellSizeY.Scale` uses the full 200-pixel viewport to give relative heights a stable reference. Content exceeding the viewport scrolls vertically. Resizing recalculates the open dropdown's height.
+
+Automatic sizing applies to the dropdown cells, not the selected-option preview in the header. The preview continues to use the configured dimension offsets, defaulting to 64 pixels per axis.
+
+**Migration:** `CellSize` is no longer a supported configuration field. Replace `CellSize = UDim2.new(xScale, xOffset, yScale, yOffset)` with `CellSizeX = UDim.new(xScale, xOffset)` and `CellSizeY = UDim.new(yScale, yOffset)`. Omit `CellSizeY` when using `CellsInFillDirection` if you want automatic squares.
 
 ### Methods
 
@@ -928,8 +1007,10 @@ local window = Library:Window({
 	ToggleKeybind = Enum.KeyCode.RightShift,
 })
 
-local mainTab = window:AddTab({ Title = "Main" })
-local section = mainTab:NewSection({ Title = "Settings" })
+local mainTab = window:AddTab({ Title = "Main", Columns = 3 })
+local section = mainTab[1]:NewSection({ Title = "Settings" })
+local selection = mainTab[2]:NewSection({ Title = "Selection" })
+local actions = mainTab[3]:NewSection({ Title = "Actions" })
 
 local statusLabel = section:AddLabel({ Text = "Status: Ready" })
 
@@ -952,7 +1033,7 @@ section:AddSlider({
 	end,
 })
 
-section:AddDropdown({
+selection:AddDropdown({
 	Text = "Mode",
 	Options = { "Normal", "Fast", "Precise" },
 	Searchable = true,
@@ -961,7 +1042,21 @@ section:AddDropdown({
 	end,
 })
 
-section:AddButton({
+selection:AddOptionGrid({
+	Text = "Profile",
+	CellsInFillDirection = 3,
+	CellSizeY = UDim.new(0, 28),
+	Options = {
+		{ Name = "One" },
+		{ Name = "Two" },
+		{ Name = "Three" },
+	},
+	Callback = function(name)
+		print("Profile:", name)
+	end,
+})
+
+actions:AddButton({
 	Text = "Save",
 	Callback = function()
 		window:Toast({
