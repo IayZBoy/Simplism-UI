@@ -354,6 +354,7 @@ type OptionGridElement = {
 	Frame: Frame,
 	SetVisible: (self: OptionGridElement, visible: boolean) -> (),
 	AddOption: (self: OptionGridElement, option: OptionGridItem) -> (),
+	AddOptions: (self: OptionGridElement, options: { OptionGridItem }) -> (),
 	RemoveOption: (self: OptionGridElement, name: string) -> (),
 	SetSelectedOption: (self: OptionGridElement, name: string) -> (),
 	GetSelected: (self: OptionGridElement) -> string?,
@@ -2386,6 +2387,15 @@ end
 function OptionGridElement:AddOption(option: OptionGridItem)
 	if not option or not option.Name then return end
 	table.insert(self._options, option)
+	self._rebuildGrid()
+end
+
+function OptionGridElement:AddOptions(options: { OptionGridItem })
+	for _, option in (options) do
+		if option and option.Name then
+			table.insert(self._options, option)
+		end
+	end
 	self._rebuildGrid()
 end
 
