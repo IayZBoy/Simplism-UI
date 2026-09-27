@@ -1939,6 +1939,7 @@ function OptionGridElement.new(section, config: OptionGridConfig): OptionGridEle
 	for _, v in (config.Options or {}) do
 		table.insert(options, v)
 	end
+	local optionByName = {}
 	local selected = nil
 	local isOpen = false
 	local searchable = config.Searchable ~= nil and config.Searchable or false
@@ -2132,43 +2133,33 @@ function OptionGridElement.new(section, config: OptionGridConfig): OptionGridEle
 		return opt.Color or COLORS.Element
 	end
 
-	local function refreshSelectionVisuals(previousSelected)
-		local function updateCell(name)
-			local cell = cells[name]
-			if not cell then return end
-			local opt
-			for _, v in (options) do
-				if v.Name == name then
-					opt = v
-					break
-				end
-			end
-			if not opt then return end
-			local stroke = cell:FindFirstChildOfClass("UIStroke")
-			local nowSelected = isSelected(name)
-			if stroke then
-				Tween(stroke, 0.15, { Color = nowSelected and COLORS.Accent or COLORS.Border, Thickness = nowSelected and 2 or 1 })
-			end
-			Tween(cell, 0.15, { BackgroundColor3 = cellBaseColor(opt) })
-		end
+	local function refreshCellSelection(name)
+		if not name then return end
 
-		if previousSelected then
-			updateCell(previousSelected)
+		local cell = cells[name]
+		local opt = optionByName[name]
+		if not cell or not opt then return end
+
+		local stroke = cell:FindFirstChildOfClass("UIStroke")
+		local nowSelected = isSelected(name)
+		if stroke then
+			Tween(stroke, 0.15, { Color = nowSelected and COLORS.Accent or COLORS.Border, Thickness = nowSelected and 2 or 1 })
+		end
+		Tween(cell, 0.15, { BackgroundColor3 = cellBaseColor(opt) })
+	end
+
+	local function refreshSelectionVisuals(previousSelected)
+		if previousSelected and previousSelected ~= selected then
+			refreshCellSelection(previousSelected)
 		end
 		if selected then
-			updateCell(selected)
+			refreshCellSelection(selected)
 		end
 	end
 
 	local function updatePreview()
 		if selected then
-			local opt
-			for _, v in (options) do
-				if v.Name == selected then
-					opt = v
-					break
-				end
-			end
+			local opt = optionByName[selected]
 			if opt then
 				previewLabel.Text = opt.Icon and "" or opt.Name
 				previewLabel.Visible = opt.Icon == nil
@@ -2215,6 +2206,11 @@ function OptionGridElement.new(section, config: OptionGridConfig): OptionGridEle
 	end
 
 	local function rebuildGrid()
+		table.clear(optionByName)
+		for _, opt in (options) do
+			optionByName[opt.Name] = opt
+		end
+
 		for _, child in (gridScroll:GetChildren()) do
 			if child:IsA("Frame") and child.Name == "OptionCell" then
 				child:Destroy()
@@ -2317,7 +2313,9 @@ function OptionGridElement.new(section, config: OptionGridConfig): OptionGridEle
 	if searchable and searchBox then
 		self._maid:Add(searchBox:GetPropertyChangedSignal("Text"):Connect(function()
 			searchQuery = searchBox.Text
-			filterOptions()
+			if isOpen then
+				filterOptions()
+			end
 		end))
 	end
 
@@ -2359,6 +2357,7 @@ function OptionGridElement.new(section, config: OptionGridConfig): OptionGridEle
 
 	self.Frame = frame
 	self._options = options
+	self._optionByName = optionByName
 	self._getSelected = function() return selected end
 	self._setSelected = function(name)
 		local previousSelected = selected
@@ -2430,14 +2429,11 @@ function OptionGridElement:RemoveOption(name: string)
 end
 
 function OptionGridElement:SetSelectedOption(name: string)
-	for _, v in (self._options) do
-		if v.Name == name then
-			self._setSelected(name)
-			if self._configCallback then
-				self._configCallback(name)
-			end
-			return
-		end
+	if not self._optionByName[name] then return end
+
+	self._setSelected(name)
+	if self._configCallback then
+		self._configCallback(name)
 	end
 end
 
