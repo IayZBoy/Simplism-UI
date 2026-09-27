@@ -6,7 +6,21 @@ local TextService = game:GetService("TextService")
 
 -- Instances
 local player = Players.LocalPlayer
-local playerGui = (gethui and gethui()) or game:GetService("CoreGui") or player:WaitForChild("PlayerGui")
+local playerGui = (function()
+	local success, result = pcall(gethui)
+	if success and result then
+		return result
+	end
+
+	success, result = pcall(function()
+		return game:GetService("CoreGui")
+	end)
+	if success and result then
+		return result
+	end
+
+	return player:WaitForChild("PlayerGui")
+end)()
 
 -- Common variables
 local UD2_N = UDim2.new
