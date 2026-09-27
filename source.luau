@@ -6,21 +6,7 @@ local TextService = game:GetService("TextService")
 
 -- Instances
 local player = Players.LocalPlayer
-local playerGui = (function()
-	local success, result = pcall(gethui)
-	if success and result then
-		return result
-	end
-
-	success, result = pcall(function()
-		return game:GetService("CoreGui")
-	end)
-	if success and result then
-		return result
-	end
-
-	return player:WaitForChild("PlayerGui")
-end)()
+local playerGui = (gethui and gethui()) or game:GetService("CoreGui") or player:WaitForChild("PlayerGui")
 
 -- Common variables
 local UD2_N = UDim2.new
@@ -354,7 +340,9 @@ type OptionGridConfig = {
 	Options: { OptionGridItem }?,
 	Default: string?,
 	Searchable: boolean?,
-	CellSize: UDim2?,
+	CellSizeX: UDim?,
+	CellSizeY: UDim?,
+	CellsInFillDirection: number?,
 	HorizontalAlignment: string?,
 	VerticalAlignment: string?,
 	FillDirectionX: string?,
@@ -437,6 +425,8 @@ type ColorPickerElement = {
 
 type TabConfig = {
 	Title: string?,
+	Columns: number?,
+	MaxColumnWidth: UDim?,
 }
 
 type SectionObject = {
@@ -461,7 +451,17 @@ type SectionObject = {
 	AddKeybind: (self: SectionObject, config: KeyInputConfig) -> KeyInputElement,
 }
 
+type ColumnObject = {
+	Index: number,
+	Frame: Frame,
+	Tab: any,
+	NewSection: (self: ColumnObject, config: SectionConfig) -> SectionObject,
+}
+
 type TabObject = {
+	[number]: ColumnObject,
+	Columns: number,
+	MaxColumnWidth: UDim?,
 	Title: string,
 	Active: boolean,
 	Visible: boolean,
@@ -1946,6 +1946,8 @@ function MultiSelectDropdownElement:Destroy()
 end
 
 function OptionGridElement.new(section, config: OptionGridConfig): OptionGridElement
+	local cellsInFillDirection = config.CellsInFillDirection
+	assert(cellsInFillDirection == nil or (type(cellsInFillDirection) == "number" and cellsInFillDirection >= 1 and cellsInFillDirection < math.huge and cellsInFillDirection % 1 == 0), "CellsInFillDirection must be a positive finite integer")
 	local self = setmetatable({}, OptionGridElement)
 	self._maid = Maid.new()
 
@@ -1959,9 +1961,13 @@ function OptionGridElement.new(section, config: OptionGridConfig): OptionGridEle
 	local searchable = config.Searchable ~= nil and config.Searchable or false
 	local searchQuery = ""
 
-	local cellSize = config.CellSize or UD2_N(0, 64, 0, 64)
+	assert(config.CellSizeX == nil or typeof(config.CellSizeX) == "UDim", "CellSizeX must be a UDim")
+	assert(config.CellSizeY == nil or typeof(config.CellSizeY) == "UDim", "CellSizeY must be a UDim")
+	local cellSizeX = config.CellSizeX or UDim.new(0, 64)
+	local cellSizeY = config.CellSizeY or UDim.new(0, 64)
+	local cellSize = UD2_N(cellSizeX.Scale, cellSizeX.Offset, cellSizeY.Scale, cellSizeY.Offset)
 	local previewSize = cellSize
-	local maxCellsX = config.MaxCellsX
+	local maxCellsX = cellsInFillDirection or config.MaxCellsX
 
 	local hAlignMap = {
 		Left = Enum.HorizontalAlignment.Left,
@@ -2116,6 +2122,8 @@ function OptionGridElement.new(section, config: OptionGridConfig): OptionGridEle
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 4,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		VerticalScrollBarInset = Enum.ScrollBarInset.None,
 		ScrollBarImageColor3 = COLORS.Accent,
 		CanvasSize = UD2_N(0, 0, 0, 0),
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
@@ -2138,6 +2146,54 @@ function OptionGridElement.new(section, config: OptionGridConfig): OptionGridEle
 
 	local cells = {}
 	local MAX_OPEN_HEIGHT = 200
+	local lastGridWidth = -1
+	local resizeOpenGrid
+
+	local function updateCellSize()
+		local width = gridScroll.AbsoluteSize.X
+		if width == lastGridWidth then return end
+		lastGridWidth = width
+		if cellsInFillDirection then
+			local availableWidth = math.max(0, width - 8)
+			local cellWidth = math.max(1, (availableWidth - 6 * (cellsInFillDirection - 1)) / cellsInFillDirection)
+			local height = config.CellSizeY or UDim.new(0, cellWidth)
+			cellSize = UD2_N(0, cellWidth, height.Scale, height.Offset)
+			gridLayout.CellSize = cellSize
+		end
+		if isOpen and resizeOpenGrid then
+			resizeOpenGrid()
+		end
+	end
+
+	local function getOpenHeight()
+		local visibleCount = 0
+		for _, cell in cells do
+			if cell.Visible then
+				visibleCount = visibleCount + 1
+			end
+		end
+		local width = math.max(0, gridScroll.AbsoluteSize.X - 8)
+		local resolvedWidth = math.max(1, width * cellSize.X.Scale + cellSize.X.Offset)
+		local columns = cellsInFillDirection or math.max(1, math.floor((width + 6) / (resolvedWidth + 6)))
+		if maxCellsX and maxCellsX > 0 then
+			columns = math.min(columns, maxCellsX)
+		end
+		local rows = math.max(1, math.ceil(visibleCount / columns))
+		local contentHeight = rows * cellSize.Y.Offset + math.max(0, rows - 1) * 6 + 8
+		if cellSize.Y.Scale ~= 0 then
+			contentHeight = MAX_OPEN_HEIGHT
+		end
+		return (searchable and 38 or 0) + math.clamp(math.ceil(contentHeight), 8, MAX_OPEN_HEIGHT)
+	end
+
+	resizeOpenGrid = function()
+		local totalHeight = getOpenHeight()
+		Tween(frame, 0.3, { Size = UD2_N(1, 0, 0, headerHeight + totalHeight + 2) })
+		Tween(dropFrame, 0.3, { Size = UD2_N(1, 0, 0, totalHeight) })
+	end
+
+	self._maid:Add(gridScroll:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateCellSize))
+	updateCellSize()
 
 	local function isSelected(name)
 		return selected == name
@@ -2342,17 +2398,8 @@ function OptionGridElement.new(section, config: OptionGridConfig): OptionGridEle
 				filterOptions()
 			end
 
-			local visibleCount = 0
-			for _, cell in (cells) do
-				if cell.Visible then
-					visibleCount = visibleCount + 1
-				end
-			end
-			local columns = maxCellsX or math.max(1, math.floor((frame.AbsoluteSize.X - 8) / (cellSize.X.Offset + 6)))
-			local rows = math.max(1, math.ceil(visibleCount / columns))
-			local contentHeight = rows * cellSize.Y.Offset + math.max(0, rows - 1) * 6 + 8
-			local baseHeight = searchable and 38 or 0
-			local totalHeight = math.min(baseHeight + contentHeight, (searchable and 38 or 0) + MAX_OPEN_HEIGHT)
+			updateCellSize()
+			local totalHeight = getOpenHeight()
 
 			dropFrame.Visible = true
 			dropFrame.Size = UD2_N(1, 0, 0, 0)
@@ -3403,7 +3450,7 @@ function ColorPickerElement:Destroy()
 	end
 end
 
-function Section.new(tab, config: SectionConfig): SectionObject
+function Section.new(tab, config: SectionConfig, parent: Frame?): SectionObject
 	local self = setmetatable({}, Section)
 	self._maid = Maid.new()
 	self.Tab = tab
@@ -3418,7 +3465,7 @@ function Section.new(tab, config: SectionConfig): SectionObject
 		BackgroundColor3 = COLORS.Section,
 		BorderSizePixel = 0,
 		ClipsDescendants = true,
-		Parent = tab.ScrollFrame,
+		Parent = parent or tab.ScrollFrame,
 	})
 	AddCorner(self.Frame, 10)
 	AddStroke(self.Frame, COLORS.Border, 1)
@@ -3604,11 +3651,23 @@ function Section:Destroy()
 	end
 end
 
+local function NewColumnSection(column: ColumnObject, config: SectionConfig): SectionObject
+	local tab = column.Tab
+	local section = Section.new(tab, config, column.Frame)
+	table.insert(tab.Sections, section)
+	return section
+end
+
 function Tab.new(window, config: TabConfig): TabObject
+	local columnCount = config.Columns or 1
+	assert(type(columnCount) == "number" and columnCount >= 1 and columnCount < math.huge and columnCount % 1 == 0, "Columns must be a positive finite integer")
+	assert(config.MaxColumnWidth == nil or typeof(config.MaxColumnWidth) == "UDim", "MaxColumnWidth must be a UDim")
 	local self = setmetatable({}, Tab)
 	self._maid = Maid.new()
 	self.Window = window
 	self.Title = config.Title or "Tab"
+	self.Columns = columnCount
+	self.MaxColumnWidth = config.MaxColumnWidth
 	self.Sections = {}
 	self.Active = false
 	self.Visible = true
@@ -3660,7 +3719,52 @@ function Tab.new(window, config: TabConfig): TabObject
 		Parent = self.ContentCanvas,
 	})
 	AddPadding(self.ScrollFrame, 8)
-	AddListLayout(self.ScrollFrame, 8)
+	AddListLayout(self.ScrollFrame, 8, Enum.FillDirection.Horizontal)
+
+	for index = 1, columnCount do
+		local frame = Create("Frame", {
+			Name = "Column_" .. index,
+			Size = UD2_N(0, 200, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			LayoutOrder = index,
+			Parent = self.ScrollFrame,
+		})
+		AddListLayout(frame, 8)
+		self[index] = {
+			Index = index,
+			Frame = frame,
+			Tab = self,
+			NewSection = NewColumnSection,
+		}
+	end
+
+	local function updateColumns()
+		local contentWidth = window.ContentArea.AbsoluteSize.X
+		local viewportWidth = self.ScrollFrame.AbsoluteWindowSize.X
+		local minimumWidth = math.max(200, contentWidth / 2.5)
+		local availableWidth = math.max(0, viewportWidth - 16)
+		local columnWidth = math.max(minimumWidth, (availableWidth - 8 * (columnCount - 1)) / columnCount)
+		local maximumWidth = self.MaxColumnWidth
+		if maximumWidth then
+			columnWidth = math.max(minimumWidth, math.min(columnWidth, contentWidth * maximumWidth.Scale + maximumWidth.Offset))
+		end
+		for index = 1, columnCount do
+			self[index].Frame.Size = UD2_N(0, columnWidth, 0, 0)
+		end
+		local totalWidth = columnWidth * columnCount + 8 * (columnCount - 1) + 16
+		local horizontal = columnCount > 2 or totalWidth > viewportWidth + 0.01
+		self.ScrollFrame.AutomaticCanvasSize = horizontal and Enum.AutomaticSize.XY or Enum.AutomaticSize.Y
+		self.ScrollFrame.ScrollingDirection = horizontal and Enum.ScrollingDirection.XY or Enum.ScrollingDirection.Y
+		if not horizontal and self.ScrollFrame.CanvasPosition.X ~= 0 then
+			self.ScrollFrame.CanvasPosition = Vector2.new(0, self.ScrollFrame.CanvasPosition.Y)
+		end
+	end
+
+	self._maid:Add(window.ContentArea:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateColumns))
+	self._maid:Add(self.ScrollFrame:GetPropertyChangedSignal("AbsoluteWindowSize"):Connect(updateColumns))
+	updateColumns()
 
 	self._maid:Add(self.Button.MouseEnter:Connect(function()
 		if not self.Active then
@@ -3682,9 +3786,7 @@ function Tab.new(window, config: TabConfig): TabObject
 end
 
 function Tab:NewSection(config: SectionConfig): SectionObject
-	local section = Section.new(self, config)
-	table.insert(self.Sections, section)
-	return section
+	return self[1]:NewSection(config)
 end
 
 function Tab:SetActive(active: boolean)
