@@ -145,7 +145,15 @@ local window = Library:Window({
 | `StartVisible`  | `boolean?`      | `true`           | Initial open state                                    |
 | `ToggleKeybind` | `Enum.KeyCode?` | None             | Adds a rebindable top-bar key that toggles the window |
 
-If no custom `Parent` is supplied, SimplismUI creates its own `ScreenGui` with a `UUID` as name under `Players.LocalPlayer.PlayerGui`.
+If no custom `Parent` is supplied, SimplismUI creates its own `ScreenGui` with a UUID as its name.
+
+The parent container is chosen in this order:
+
+1. `gethui()` — if available
+2. `CoreGui`
+3. `Players.LocalPlayer.PlayerGui`
+
+A custom `Parent` overrides this behavior.
 
 ### Responsive sizing
 
