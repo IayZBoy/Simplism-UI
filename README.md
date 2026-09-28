@@ -941,6 +941,8 @@ local toast = window:Toast({
 | `BorderColor`      | `Color3?`         | Type's default color          | Border/accent                  |
 | `ShowDurationBar`  | `boolean?`        | `true`                        | Enables the duration bar        |
 | `DurationBarColor` | `Color3?`         | `BorderColor`                 | Duration-bar color              |
+| `EntranceDuration` | `number?`         | `0.35`  | Duration, in seconds, of the toast's entrance animation |
+| `ExitDuration`     | `number?`         | `0.25`  | Duration, in seconds, of the toast's exit animation |
 | `Dismissible`      | `boolean?`        | `true`                        | Allow mouse/touch dismissal      |
 | `MaxWidth`         | `number?`         | `360`                          | Maximum width                    |
 | `Spacing`          | `number?`         | `8`                            | Stack spacing                    |
