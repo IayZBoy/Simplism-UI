@@ -141,11 +141,11 @@ local window = Library:Window({
 | `TabBarLocation` | `"Top" \| "Left" \| "Bottom" \| "Right"?` | `"Top"` | Positions the tab bar; other values raise an assertion |
 | `Size`          | `UDim2?`        | None             | Custom size, used when `OverrideSize` is enabled      |
 | `OverrideSize`  | `boolean?`      | `false`          | Uses `Size` as the base size; sidebar width is still added    |
-| `Parent`        | `ScreenGui?`    | New `UUID v4`       | Existing `ScreenGui` to contain the window            |
+| `Parent`        | `ScreenGui?`    | New `UUID`       | Existing `ScreenGui` to contain the window            |
 | `StartVisible`  | `boolean?`      | `true`           | Initial open state                                    |
 | `ToggleKeybind` | `Enum.KeyCode?` | None             | Adds a rebindable top-bar key that toggles the window |
 
-If no custom `Parent` is supplied, SimplismUI creates its own `ScreenGui` with a UUID V4 as name under `Players.LocalPlayer.PlayerGui`.
+If no custom `Parent` is supplied, SimplismUI creates its own `ScreenGui` with a `UUID` as name under `Players.LocalPlayer.PlayerGui`.
 
 ### Responsive sizing
 
