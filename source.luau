@@ -446,6 +446,7 @@ type SectionObject = {
 	AddLabel: (self: SectionObject, config: LabelConfig) -> LabelElement,
 	AddDropdown: (self: SectionObject, config: DropdownConfig) -> DropdownElement,
 	AddMultiSelectDropdown: (self: SectionObject, config: MultiSelectDropdownConfig) -> MultiSelectDropdownElement,
+	AddOptionGrid: (self: SectionObject, config: OptionGridConfig) -> OptionGridElement,
 	AddTextBox: (self: SectionObject, config: TextBoxConfig) -> TextBoxElement,
 	AddColorPicker: (self: SectionObject, config: ColorPickerConfig) -> ColorPickerElement,
 	AddKeybind: (self: SectionObject, config: KeyInputConfig) -> KeyInputElement,
