@@ -42,6 +42,7 @@ It provides animated windows, scrollable tabs and sections, common settings cont
 
 - Draggable, animated, responsive windows (or fixed-size)
 - Show, hide, toggle, and minimize controls, with an optional rebindable toggle key
+- Top, left, bottom, or right tab bars with upright, text-sized buttons and automatic sidebar width
 - External visibility-button integration
 - Scrolling tab bar and responsive multi-column tabs with indexed section creation
 - Collapsible sections and ordered elements via `ListOrder`
@@ -137,8 +138,9 @@ local window = Library:Window({
 | Field           | Type            | Default          | Description                                           |
 | --------------- | --------------- | ---------------- | ----------------------------------------------------- |
 | `Title`         | `string?`       | `"Settings"`     | Window title                                          |
+| `TabBarLocation` | `"Top" \| "Left" \| "Bottom" \| "Right"?` | `"Top"` | Positions the tab bar; other values raise an assertion |
 | `Size`          | `UDim2?`        | None             | Custom size, used when `OverrideSize` is enabled      |
-| `OverrideSize`  | `boolean?`      | `false`          | Disables responsive sizing and uses `Size` instead    |
+| `OverrideSize`  | `boolean?`      | `false`          | Uses `Size` as the base size; sidebar width is still added    |
 | `Parent`        | `ScreenGui?`    | New `SettingsUI` | Existing `ScreenGui` to contain the window            |
 | `StartVisible`  | `boolean?`      | `true`           | Initial open state                                    |
 | `ToggleKeybind` | `Enum.KeyCode?` | None             | Adds a rebindable top-bar key that toggles the window |
@@ -147,7 +149,7 @@ If no custom `Parent` is supplied, SimplismUI creates its own `ScreenGui` (named
 
 ### Responsive sizing
 
-Without `OverrideSize`, the window targets `UDim2.fromOffset(460, 520)` and automatically shrinks on narrower viewports, updating live as the viewport changes. Set `OverrideSize = true` and provide `Size` to use a fixed size instead:
+Without `OverrideSize`, the window targets `UDim2.fromOffset(460, 520)` and automatically shrinks on narrower viewports, updating live as the viewport changes. Set `OverrideSize = true` and provide `Size` to use a fixed base size instead. Left and right tab bars add their measured width to that base size:
 
 ```lua
 local window = Library:Window({
@@ -156,6 +158,32 @@ local window = Library:Window({
 	Size = UDim2.fromOffset(600, 450),
 })
 ```
+
+### Tab bar location and button sizing
+
+```lua
+local window = Library:Window({
+	Title = "Settings",
+	TabBarLocation = "Left",
+	ToggleKeybind = Enum.KeyCode.RightShift,
+})
+
+window:AddTab({ Title = "Main" })
+window:AddTab({ Title = "Appearance" })
+```
+
+| Location | Tab layout | Space used |
+| -------- | ---------- | ---------- |
+| `Top` | Horizontal, below the title bar | 40-pixel tab bar; default placement |
+| `Bottom` | Horizontal, along the bottom | 40-pixel tab bar |
+| `Left` | Vertical, below the title bar | Width of the widest visible tab button plus 16 pixels of horizontal padding |
+| `Right` | Vertical, below the title bar | Width of the widest visible tab button plus 16 pixels of horizontal padding |
+
+Buttons stay upright in every position and are 32 pixels high. Their widths use the title's measured text width plus 38 pixels, clamped to 38–100 pixels. Long titles truncate with an ellipsis. Buttons are separated by 4 pixels; overflowing tab lists scroll horizontally for top/bottom bars and vertically for side bars.
+
+Side bars expand the window by their actual required width, preserving the base content width. This is not a fixed 116-pixel increase: 116 pixels is only the maximum, reached with a 100-pixel button. Adding, hiding, or showing tabs recalculates the sidebar and window width from the visible buttons. An empty sidebar adds no width. This adjustment also applies when `OverrideSize = true`; viewport-driven responsive sizing continues to apply when it is false.
+
+`TabBarLocation` is a construction option; there is no public setter to relocate the bar after creation.
 
 ### Methods
 
@@ -328,12 +356,12 @@ All element constructors take a configuration table. Most elements expose a root
 | Element      | User interaction | Programmatic setter                  | Initial default                      |
 | ------------ | ----------------- | ------------------------------------- | ------------------------------------- |
 | Button       | Yes               | N/A                                   | No                                    |
-| Slider       | Yes               | `SetValue` fires                      | No (NaN default: yes — see Edge Cases) |
+| Slider       | Yes               | `SetValue` fires                      | No, including NaN defaults |
 | Toggle       | Yes               | `SetValue` fires                      | No                                    |
 | Label        | None              | N/A                                    | N/A                                    |
-| Dropdown     | Yes               | `SetSelectedOption` fires             | **Yes**, if valid                     |
-| Multi-select | Yes               | `SetSelected` / `ClearSelected` fire  | **Yes**, if valid                     |
-| Option Grid  | Yes               | `SetSelectedOption` fires             | **Yes**, if valid                     |
+| Dropdown     | Yes               | `SetSelectedOption` fires             | No                     |
+| Multi-select | Yes               | `SetSelected` / `ClearSelected` fire  | No                     |
+| Option Grid  | Yes               | `SetSelectedOption` fires             | No                     |
 | TextBox      | On focus loss     | `SetText` fires                       | No                                     |
 | Keybind      | Binding changes   | `SetInput` / `ClearInput` fire        | No                                     |
 | Color picker | Color changes     | `SetColor` fires                      | No                                     |
@@ -402,6 +430,8 @@ local value = slider:GetValue()
 | `Callback`  | `((number) -> ())?` | None                                      | Receives the current value  |
 
 Interactive changes and `SetValue` round to the nearest multiple of `Increment` (anchored to zero, not `Min`) and clamp to `[Min, Max]`. `Default` is used as-is at construction and is **not** passed through this rounding/clamping — keep it within range and aligned to your increment.
+
+Construction never invokes the slider callback, including when `Default = 0/0`.
 
 The slider also has a numeric text entry (invalid text on focus loss reverts to the current value) and supports mouse/touch dragging, firing the callback continuously while dragging.
 
@@ -498,7 +528,7 @@ local selected = dropdown:GetSelected()
 | `ListOrder`  | `number?`           | `0`              | Layout order                          |
 | `Callback`   | `((string) -> ())?` | None             | Receives the selected option         |
 
-**A valid `Default` invokes `Callback` during construction** (an invalid one is silently ignored). Avoid referencing the constructor's return variable from inside that initial callback — the callback can run before the constructor has returned.
+A valid `Default` initializes the selection without invoking `Callback`; an invalid one is silently ignored.
 
 ### Methods
 
@@ -544,7 +574,7 @@ local selected = table.clone(dropdown:GetSelected())
 | `ListOrder`   | `number?`             | `0`               | Layout order                   |
 | `Callback`    | `(({string}) -> ())?` | None              | Receives the full selection table |
 
-Selected values display joined with `", "`. The dropdown stays open when toggling a selection. **A valid `Default` invokes `Callback` during construction** (same construction-order caveat as the single-select dropdown).
+Selected values display joined with `", "`. The dropdown stays open when toggling a selection. A valid `Default` initializes the selections without invoking `Callback`.
 
 Once `MaxSelected` is reached, clicking an unselected option doesn't add it — but the callback still fires with the unchanged selection.
 
@@ -631,7 +661,7 @@ Each `Options` entry:
 | `Icon`  | `string?` | None                                     | Asset ID for the cell's image. If present, `Name` renders as a label docked to the bottom-center of the cell. If absent, `Name` renders centered in the cell instead |
 | `Color` | `Color3?` | Theme `Element` color                   | Cell background color                     |
 
-**A valid `Default` invokes `Callback` during construction** (same construction-order caveat as the other dropdowns); an unmatched `Default` logs a warning and leaves the grid with nothing selected rather than erroring.
+A valid `Default` initializes the selection without invoking `Callback`. An unmatched `Default` logs a warning and leaves the grid with nothing selected rather than erroring.
 
 ### Layout
 
@@ -1004,6 +1034,7 @@ local Library = require(script.Parent.SimplismUI)
 
 local window = Library:Window({
 	Title = "SimplismUI",
+	TabBarLocation = "Left",
 	ToggleKeybind = Enum.KeyCode.RightShift,
 })
 
@@ -1070,7 +1101,7 @@ actions:AddButton({
 
 # Edge Cases & Notes
 
-**Constructor callbacks that fire early.** A valid dropdown or multi-select `Default` invokes `Callback` during construction; a slider constructed with `Default = 0/0` (NaN) does too. Don't rely on the constructor's return variable already being assigned inside such a callback.
+**Silent defaults.** Dropdown, multi-select dropdown, and Option Grid defaults initialize their selections without invoking `Callback`. Slider defaults are also silent, including `Default = 0/0` (NaN). User interactions and callback-firing programmatic setters retain their documented behavior; explicitly invoke your application logic if it must run once for initial values.
 
 **Slider `NaN`.** Explicitly setting a slider to NaN (`slider:SetValue(0/0)`) puts it in a special state: `GetValue()` returns NaN, the display shows `"nan"`, and the callback receives NaN. This is only reachable by deliberately passing NaN.
 
