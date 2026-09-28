@@ -483,6 +483,7 @@ type VisibilityButtonConfig = {
 }
 
 type WindowConfig = {
+	TabBarLocation: ("Top" | "Left" | "Bottom" | "Right")?,
 	Title: string?,
 	Size: UDim2?,
 	OverrideSize: boolean?,
@@ -492,6 +493,7 @@ type WindowConfig = {
 }
 
 type WindowObject = {
+	TabBarLocation: string,
 	Title: string,
 	Size: UDim2,
 	IsOpen: boolean,
@@ -960,9 +962,6 @@ function SliderElement.new(section, config: SliderConfig): SliderElement
 		Tween(fillBar, 0.08, { Size = UD2_N(1, 0, 1, 0) }, Enum.EasingStyle.Linear)
 		Tween(knob, 0.08, { Size = UD2_N(1, 0, 0, 16), Position = UD2_N(0, 0, 0.5, -8) }, Enum.EasingStyle.Linear)
 		valueInput.Text = "nan"
-		if config.Callback then
-			config.Callback(currentValue)
-		end
 	end
 
 	if defaultIsNaN then
@@ -1457,15 +1456,6 @@ function DropdownElement.new(section, config: DropdownConfig): DropdownElement
 	self._configText = config.Text
 	self._configCallback = config.Callback
 
-	if config.Default ~= nil then
-		for _, v in (options) do
-			if v == config.Default then
-				self:SetSelectedOption(config.Default)
-				break
-			end
-		end
-	end
-
 	return self
 end
 
@@ -1844,27 +1834,6 @@ function MultiSelectDropdownElement.new(section, config: MultiSelectDropdownConf
 	self._isSelected = isSelected
 	self._configText = config.Text
 	self._configCallback = config.Callback
-
-	if config.Default ~= nil then
-		local defaultList
-		if type(config.Default) == "table" then
-			defaultList = config.Default
-		else
-			defaultList = { config.Default }
-		end
-		local validDefaults = {}
-		for _, v in (defaultList) do
-			for _, opt in (options) do
-				if opt == v then
-					table.insert(validDefaults, v)
-					break
-				end
-			end
-		end
-		if #validDefaults > 0 then
-			self:SetSelected(validDefaults)
-		end
-	end
 
 	return self
 end
@@ -2438,21 +2407,6 @@ function OptionGridElement.new(section, config: OptionGridConfig): OptionGridEle
 	end
 	self._configText = config.Text
 	self._configCallback = config.Callback
-
-	if config.Default ~= nil then
-		local found = false
-		for _, v in (options) do
-			if v.Name == config.Default then
-				found = true
-				break
-			end
-		end
-		if found then
-			self:SetSelectedOption(config.Default)
-		else
-			warn("[OptionGrid] Default does not match any option:", config.Default)
-		end
-	end
 
 	return self
 end
@@ -3672,10 +3626,11 @@ function Tab.new(window, config: TabConfig): TabObject
 	self.Active = false
 	self.Visible = true
 
+	local buttonWidth = math.clamp(TextService:GetTextSize(self.Title, 13, Enum.Font.GothamBold, Vector2.new(100000, 32)).X + 38, 38, 100)
+
 	self.Button = Create("TextButton", {
 		Name = "Tab_" .. self.Title,
-		Size = UD2_N(0, 0, 1, 0),
-		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UD2_N(0, buttonWidth, 0, 32),
 		BackgroundColor3 = COLORS.TabInactive,
 		BorderSizePixel = 0,
 		Text = "",
@@ -3683,11 +3638,12 @@ function Tab.new(window, config: TabConfig): TabObject
 		Parent = window.TabHolder,
 	})
 	AddCorner(self.Button, 6)
-	AddPadding(self.Button, 14)
+
 
 	self.ButtonLabel = Create("TextLabel", {
-		Size = UD2_N(0, 0, 1, 0),
-		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UD2_N(1, -28, 1, 0),
+		Position = UD2_N(0, 14, 0, 0),
+		TextTruncate = Enum.TextTruncate.AtEnd,
 		BackgroundTransparency = 1,
 		Text = self.Title,
 		TextColor3 = COLORS.TextDim,
@@ -3813,6 +3769,7 @@ end
 function Tab:SetVisible(visible: boolean)
 	self.Visible = visible
 	self.Button.Visible = visible
+	self.Window:_UpdateTabBarWidth()
 	if not visible then
 		if self.Active then
 			self:SetActive(false)
@@ -3832,13 +3789,22 @@ function Window.new(config: WindowConfig): WindowObject
 	local self = setmetatable({}, Window)
 	self._maid = Maid.new()
 	self.Title = config.Title or "SimplismUI"
+	self.TabBarLocation = config.TabBarLocation or "Top"
+	assert(self.TabBarLocation == "Top" or self.TabBarLocation == "Left" or self.TabBarLocation == "Bottom" or self.TabBarLocation == "Right", "TabBarLocation must be Top, Left, Bottom, or Right")
+	local verticalTabs = self.TabBarLocation == "Left" or self.TabBarLocation == "Right"
+	self._verticalTabs = verticalTabs
+	self._tabBarWidth = 0
+	local function accommodateTabBar(size)
+		self._baseSize = size
+		return UD2_N(size.X.Scale, size.X.Offset + (verticalTabs and self._tabBarWidth or 0), size.Y.Scale, size.Y.Offset)
+	end
 
 	if config.OverrideSize then
-		self.Size = config.Size
+		self.Size = accommodateTabBar(config.Size)
 	else
-		self.Size = CalculateWindowSize()
+		self.Size = accommodateTabBar(CalculateWindowSize())
 		self._maid:Add(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
-			self.Size = CalculateWindowSize()
+			self.Size = accommodateTabBar(CalculateWindowSize())
 			if self.IsOpen and (self.MainFrame and self.MainFrame:IsA("GuiObject")) then
 				if self.IsMinimized then
 					Tween(self.MainFrame, 0.3, { Size = UD2_N(self.Size.X.Scale, self.Size.X.Offset, 0, 40) }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
@@ -4079,8 +4045,10 @@ function Window.new(config: WindowConfig): WindowObject
 
 	self.TabBar = Create("Frame", {
 		Name = "TabBar",
-		Size = UD2_N(1, 0, 0, 40),
-		Position = UD2_N(0, 0, 0, 40),
+		Size = verticalTabs and UD2_N(0, self._tabBarWidth, 1, -40) or UD2_N(1, 0, 0, 40),
+		Position = self.TabBarLocation == "Right" and UD2_N(1, -self._tabBarWidth, 0, 40)
+			or self.TabBarLocation == "Bottom" and UD2_N(0, 0, 1, -40)
+			or UD2_N(0, 0, 0, 40),
 		BackgroundColor3 = COLORS.TabBar,
 		BorderSizePixel = 0,
 		Parent = self.MainFrame,
@@ -4091,27 +4059,30 @@ function Window.new(config: WindowConfig): WindowObject
 		Position = UD2_N(0, 8, 0, 4),
 		BackgroundTransparency = 1,
 		Parent = self.TabBar,
-		ScrollingDirection = Enum.ScrollingDirection.X,
+		ScrollingDirection = verticalTabs and Enum.ScrollingDirection.Y or Enum.ScrollingDirection.X,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 0,
 		ScrollBarImageColor3 = COLORS.Accent,
 		ClipsDescendants = true,
-		AutomaticCanvasSize = Enum.AutomaticSize.X,
+		AutomaticCanvasSize = verticalTabs and Enum.AutomaticSize.Y or Enum.AutomaticSize.X,
 		CanvasSize = UD2_N(0, 0, 0, 0),
 	})
 
 	self.TabHolder = Create("Frame", {
-		Size = UD2_N(1, 0, 1, 0),
+		Size = verticalTabs and UD2_N(1, 0, 0, 0) or UD2_N(0, 0, 1, 0),
+		AutomaticSize = verticalTabs and Enum.AutomaticSize.Y or Enum.AutomaticSize.X,
 		Position = UD2_N(0, 0, 0, 0),
 		BackgroundTransparency = 1,
 		Parent = self.TabScroller,
 	})
-	AddListLayout(self.TabHolder, 4, Enum.FillDirection.Horizontal)
+	AddListLayout(self.TabHolder, 4, verticalTabs and Enum.FillDirection.Vertical or Enum.FillDirection.Horizontal)
 
 	self.ContentArea = Create("Frame", {
 		Name = "ContentArea",
-		Size = UD2_N(1, 0, 1, -80),
-		Position = UD2_N(0, 0, 0, 80),
+		Size = verticalTabs and UD2_N(1, -self._tabBarWidth, 1, -40) or UD2_N(1, 0, 1, -80),
+		Position = self.TabBarLocation == "Left" and UD2_N(0, self._tabBarWidth, 0, 40)
+			or self.TabBarLocation == "Top" and UD2_N(0, 0, 0, 80)
+			or UD2_N(0, 0, 0, 40),
 		BackgroundTransparency = 1,
 		ClipsDescendants = true,
 		Parent = self.MainFrame,
@@ -4234,9 +4205,33 @@ function Window:Destroy()
 	end
 end
 
+function Window:_UpdateTabBarWidth()
+	if not self._verticalTabs then return end
+	local width = 0
+	for _, tab in self.Tabs do
+		if tab.Visible then
+			width = math.max(width, tab.Button.Size.X.Offset + 16)
+		end
+	end
+	if width == self._tabBarWidth then return end
+	self._tabBarWidth = width
+	self.TabBar.Size = UD2_N(0, width, 1, -40)
+	self.TabBar.Position = self.TabBarLocation == "Right" and UD2_N(1, -width, 0, 40) or UD2_N(0, 0, 0, 40)
+	self.ContentArea.Size = UD2_N(1, -width, 1, -40)
+	self.ContentArea.Position = self.TabBarLocation == "Left" and UD2_N(0, width, 0, 40) or UD2_N(0, 0, 0, 40)
+	local baseSize = self._baseSize
+	self.Size = UD2_N(baseSize.X.Scale, baseSize.X.Offset + width, baseSize.Y.Scale, baseSize.Y.Offset)
+	if self.IsOpen then
+		Tween(self.MainFrame, 0.3, {
+			Size = self.IsMinimized and UD2_N(self.Size.X.Scale, self.Size.X.Offset, 0, 40) or self.Size,
+		})
+	end
+end
+
 function Window:AddTab(config: TabConfig): TabObject
 	local tab = Tab.new(self, config)
 	table.insert(self.Tabs, tab)
+	self:_UpdateTabBarWidth()
 	if #self.Tabs == 1 then
 		self:SwitchTab(tab)
 	end
