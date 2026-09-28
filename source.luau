@@ -2907,6 +2907,7 @@ function ColorPickerElement.new(section, config: ColorPickerConfig): ColorPicker
 		Parent = svBox,
 	})
 	AddCorner(satOverlay, 6)
+	AddStroke(satOverlay, COLORS.Border, 1)
 
 	Create("UIGradient", {
 		Color = ColorSequence.new(C3_FRGB(255, 255, 255), C3_FRGB(255, 255, 255)),
