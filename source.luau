@@ -446,7 +446,6 @@ type SectionObject = {
 	AddLabel: (self: SectionObject, config: LabelConfig) -> LabelElement,
 	AddDropdown: (self: SectionObject, config: DropdownConfig) -> DropdownElement,
 	AddMultiSelectDropdown: (self: SectionObject, config: MultiSelectDropdownConfig) -> MultiSelectDropdownElement,
-	AddOptionGrid: (self: SectionObject, config: OptionGridConfig) -> OptionGridElement,
 	AddTextBox: (self: SectionObject, config: TextBoxConfig) -> TextBoxElement,
 	AddColorPicker: (self: SectionObject, config: ColorPickerConfig) -> ColorPickerElement,
 	AddKeybind: (self: SectionObject, config: KeyInputConfig) -> KeyInputElement,
@@ -748,6 +747,8 @@ local function uuid()
 		.. "-" .. table.concat(hex, "", 9, 10)
 		.. "-" .. table.concat(hex, "", 11, 16)
 end
+
+local notification_ui_uuid = uuid()
 
 function Maid.new()
 	return setmetatable({ _list = {} }, Maid)
@@ -4783,10 +4784,10 @@ function Library:Window(config: WindowConfig): WindowObject
 end
 
 function Library:Notify(config: NotifyConfig)
-	local notifGui = playerGui:FindFirstChild("NotificationUI")
+	local notifGui = playerGui:FindFirstChild(notification_ui_uuid)
 	if not notifGui then
 		notifGui = Create("ScreenGui", {
-			Name = uuid(),
+			Name = notification_ui_uuid,
 			ResetOnSpawn = false,
 			IgnoreGuiInset = true,
 			ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
@@ -5361,7 +5362,7 @@ function Library:Unload()
 
 	local ok = pcall(function()
 		if playerGui then
-			local notifGui = playerGui:FindFirstChild("NotificationUI")
+			local notifGui = playerGui:FindFirstChild(notification_ui_uuid)
 			if notifGui then
 				notifGui:Destroy()
 			end
