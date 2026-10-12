@@ -446,6 +446,7 @@ type SectionObject = {
 	AddLabel: (self: SectionObject, config: LabelConfig) -> LabelElement,
 	AddDropdown: (self: SectionObject, config: DropdownConfig) -> DropdownElement,
 	AddMultiSelectDropdown: (self: SectionObject, config: MultiSelectDropdownConfig) -> MultiSelectDropdownElement,
+	AddOptionGrid: (self: SectionObject, config: OptionGridConfig) -> OptionGridElement,
 	AddTextBox: (self: SectionObject, config: TextBoxConfig) -> TextBoxElement,
 	AddColorPicker: (self: SectionObject, config: ColorPickerConfig) -> ColorPickerElement,
 	AddKeybind: (self: SectionObject, config: KeyInputConfig) -> KeyInputElement,
@@ -748,8 +749,6 @@ local function uuid()
 		.. "-" .. table.concat(hex, "", 11, 16)
 end
 
-local notification_ui_uuid = uuid()
-
 function Maid.new()
 	return setmetatable({ _list = {} }, Maid)
 end
@@ -783,6 +782,7 @@ function Maid:Destroy()
 end
 
 function ButtonElement.new(section, config: ButtonConfig): ButtonElement
+	config = config or {}
 	local self = setmetatable({}, ButtonElement)
 	self._maid = Maid.new()
 
@@ -838,6 +838,7 @@ function ButtonElement:Destroy()
 end
 
 function SliderElement.new(section, config: SliderConfig): SliderElement
+	config = config or {}
 	local self = setmetatable({}, SliderElement)
 	self._maid = Maid.new()
 
@@ -1062,6 +1063,7 @@ function SliderElement:Destroy()
 end
 
 function ToggleElement.new(section, config: ToggleConfig): ToggleElement
+	config = config or {}
 	local self = setmetatable({}, ToggleElement)
 	self._maid = Maid.new()
 
@@ -1153,6 +1155,7 @@ function ToggleElement:Destroy()
 end
 
 function LabelElement.new(section, config: LabelConfig): LabelElement
+	config = config or {}
 	local self = setmetatable({}, LabelElement)
 	self._maid = Maid.new()
 
@@ -1197,6 +1200,7 @@ function LabelElement:Destroy()
 end
 
 function DropdownElement.new(section, config: DropdownConfig): DropdownElement
+	config = config or {}
 	local self = setmetatable({}, DropdownElement)
 	self._maid = Maid.new()
 
@@ -1517,6 +1521,7 @@ function DropdownElement:Destroy()
 end
 
 function MultiSelectDropdownElement.new(section, config: MultiSelectDropdownConfig): MultiSelectDropdownElement
+	config = config or {}
 	local self = setmetatable({}, MultiSelectDropdownElement)
 	self._maid = Maid.new()
 
@@ -1917,6 +1922,7 @@ function MultiSelectDropdownElement:Destroy()
 end
 
 function OptionGridElement.new(section, config: OptionGridConfig): OptionGridElement
+	config = config or {}
 	local cellsInFillDirection = config.CellsInFillDirection
 	assert(cellsInFillDirection == nil or (type(cellsInFillDirection) == "number" and cellsInFillDirection >= 1 and cellsInFillDirection < math.huge and cellsInFillDirection % 1 == 0), "CellsInFillDirection must be a positive finite integer")
 	local self = setmetatable({}, OptionGridElement)
@@ -2466,6 +2472,7 @@ function OptionGridElement:Destroy()
 end
 
 function TextBoxElement.new(section, config: TextBoxConfig): TextBoxElement
+	config = config or {}
 	local self = setmetatable({}, TextBoxElement)
 	self._maid = Maid.new()
 
@@ -2619,6 +2626,7 @@ function TextBoxElement:Destroy()
 end
 
 function KeyInputElement.new(section, config: KeyInputConfig): KeyInputElement
+	config = config or {}
 	local self = setmetatable({}, KeyInputElement)
 	self._maid = Maid.new()
 
@@ -2818,6 +2826,7 @@ function KeyInputElement:Destroy()
 end
 
 function ColorPickerElement.new(section, config: ColorPickerConfig): ColorPickerElement
+	config = config or {}
 	local self = setmetatable({}, ColorPickerElement)
 	self._maid = Maid.new()
 
@@ -3408,6 +3417,7 @@ function ColorPickerElement:Destroy()
 end
 
 function Section.new(tab, config: SectionConfig, parent: Frame?): SectionObject
+	config = config or {}
 	local self = setmetatable({}, Section)
 	self._maid = Maid.new()
 	self.Tab = tab
@@ -3537,60 +3547,70 @@ function Section:_CreateElementFrame(config, height, ElementType)
 end
 
 function Section:AddButton(config: ButtonConfig): ButtonElement
+	config = config or {}
 	local element = ButtonElement.new(self, config)
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddSlider(config: SliderConfig): SliderElement
+	config = config or {}
 	local element = SliderElement.new(self, config)
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddToggle(config: ToggleConfig): ToggleElement
+	config = config or {}
 	local element = ToggleElement.new(self, config)
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddLabel(config: LabelConfig): LabelElement
+	config = config or {}
 	local element = LabelElement.new(self, config)
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddDropdown(config: DropdownConfig): DropdownElement
+	config = config or {}
 	local element = DropdownElement.new(self, config)
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddMultiSelectDropdown(config: MultiSelectDropdownConfig): MultiSelectDropdownElement
+	config = config or {}
 	local element = MultiSelectDropdownElement.new(self, config)
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddOptionGrid(config: OptionGridConfig): OptionGridElement
+	config = config or {}
 	local element = OptionGridElement.new(self, config)
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddTextBox(config: TextBoxConfig): TextBoxElement
+	config = config or {}
 	local element = TextBoxElement.new(self, config)
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddColorPicker(config: ColorPickerConfig): ColorPickerElement
+	config = config or {}
 	local element = ColorPickerElement.new(self, config)
 	table.insert(self.Elements, element)
 	return element
 end
 
 function Section:AddKeybind(config: KeyInputConfig): KeyInputElement
+	config = config or {}
 	local element = KeyInputElement.new(self, config)
 	table.insert(self.Elements, element)
 	return element
@@ -3609,6 +3629,7 @@ function Section:Destroy()
 end
 
 local function NewColumnSection(column: ColumnObject, config: SectionConfig): SectionObject
+	config = config or {}
 	local tab = column.Tab
 	local section = Section.new(tab, config, column.Frame)
 	table.insert(tab.Sections, section)
@@ -3616,7 +3637,8 @@ local function NewColumnSection(column: ColumnObject, config: SectionConfig): Se
 end
 
 function Tab.new(window, config: TabConfig): TabObject
-	local columnCount = config.Columns~=nil and config.Columns or 1
+	config = config or {}
+	local columnCount = config.Columns or 1
 	assert(type(columnCount) == "number" and columnCount >= 1 and columnCount < math.huge and columnCount % 1 == 0, "Columns must be a positive finite integer")
 	assert(config.MaxColumnWidth == nil or typeof(config.MaxColumnWidth) == "UDim", "MaxColumnWidth must be a UDim")
 	local self = setmetatable({}, Tab)
@@ -3745,6 +3767,7 @@ function Tab.new(window, config: TabConfig): TabObject
 end
 
 function Tab:NewSection(config: SectionConfig): SectionObject
+	config = config or {}
 	return self[1]:NewSection(config)
 end
 
@@ -3789,6 +3812,7 @@ function Tab:Destroy()
 end
 
 function Window.new(config: WindowConfig): WindowObject
+	config = config or {}
 	local self = setmetatable({}, Window)
 	self._maid = Maid.new()
 	self.Title = config.Title or "SimplismUI"
@@ -4232,6 +4256,7 @@ function Window:_UpdateTabBarWidth()
 end
 
 function Window:AddTab(config: TabConfig): TabObject
+	config = config or {}
 	local tab = Tab.new(self, config)
 	table.insert(self.Tabs, tab)
 	self:_UpdateTabBarWidth()
@@ -4289,6 +4314,7 @@ function Window:GetVisible(): boolean
 end
 
 function Window:AttachVisibilityButton(config: VisibilityButtonConfig)
+	config = config or {}
 	local button = config.Button
 	self.ShowText = config.ShowText or "Show"
 	self.HideText = config.HideText or "Hide"
@@ -4776,18 +4802,21 @@ function Window:_DestroyAllToasts()
 end
 
 function Window:Toast(config: ToastConfig): ToastObject
+	config = config or {}
 	return Toast.new(self, config or {})
 end
 
 function Library:Window(config: WindowConfig): WindowObject
+	config = config or {}
 	return Window.new(config or {})
 end
 
 function Library:Notify(config: NotifyConfig)
-	local notifGui = playerGui:FindFirstChild(notification_ui_uuid)
+	config = config or {}
+	local notifGui = playerGui:FindFirstChild("NotificationUI")
 	if not notifGui then
 		notifGui = Create("ScreenGui", {
-			Name = notification_ui_uuid,
+			Name = uuid(),
 			ResetOnSpawn = false,
 			IgnoreGuiInset = true,
 			ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
@@ -5283,7 +5312,7 @@ function Library:NewAuth(config: NewAuthConfig)
 				activateBtn.Text = "ACTIVATE"
 				setStatus("Invalid key. Please try again.", true)
 				errorToken += 1
-				local myToken = errorToken
+				local myToken = errorTo+ken
 				Tween(inputStroke, 0.2, { Color = C3_FRGB(255, 75, 75) })
 				task.delay(0.75, function()
 					if myToken == errorToken and not inputFocused then
@@ -5362,7 +5391,7 @@ function Library:Unload()
 
 	local ok = pcall(function()
 		if playerGui then
-			local notifGui = playerGui:FindFirstChild(notification_ui_uuid)
+			local notifGui = playerGui:FindFirstChild("NotificationUI")
 			if notifGui then
 				notifGui:Destroy()
 			end
