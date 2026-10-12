@@ -3616,7 +3616,7 @@ local function NewColumnSection(column: ColumnObject, config: SectionConfig): Se
 end
 
 function Tab.new(window, config: TabConfig): TabObject
-	local columnCount = config.Columns or 1
+	local columnCount = config.Columns~=nil and config.Columns or 1
 	assert(type(columnCount) == "number" and columnCount >= 1 and columnCount < math.huge and columnCount % 1 == 0, "Columns must be a positive finite integer")
 	assert(config.MaxColumnWidth == nil or typeof(config.MaxColumnWidth) == "UDim", "MaxColumnWidth must be a UDim")
 	local self = setmetatable({}, Tab)
