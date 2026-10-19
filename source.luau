@@ -3,6 +3,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local TextService = game:GetService("TextService")
+local GuiService = game:GetService("GuiService")
 
 -- Instances
 local player = Players.LocalPlayer
@@ -16,6 +17,8 @@ local Library = {}
 
 local ActiveWindows = {}
 local GlobalMaidList = {}
+local PopoutMemory = setmetatable({}, { __mode = "k" })
+local SectionOrder = 0
 
 local COLORS = {
 	Background = Color3.fromRGB(25, 25, 35),
@@ -116,6 +119,9 @@ Tab.__index = Tab
 
 local Window = {}
 Window.__index = Window
+
+local Popout = {}
+Popout.__index = Popout
 
 local Toast = {}
 Toast.__index = Toast
@@ -429,6 +435,11 @@ type TabConfig = {
 	MaxColumnWidth: UDim?,
 }
 
+type PopoutConfig = {
+	Size: (Vector2 | UDim2)?,
+	Position: (Vector2 | UDim2)?,
+}
+
 type SectionObject = {
 	Title: string,
 	Visible: boolean,
@@ -440,6 +451,10 @@ type SectionObject = {
 	Tab: any,
 	Window: any,
 	SetVisible: (self: SectionObject, visible: boolean) -> (),
+	Popout: (self: SectionObject, config: PopoutConfig?) -> (),
+	Dock: (self: SectionObject) -> (),
+	TogglePopout: (self: SectionObject, config: PopoutConfig?) -> (),
+	IsPoppedOut: (self: SectionObject) -> boolean,
 	AddButton: (self: SectionObject, config: ButtonConfig) -> ButtonElement,
 	AddSlider: (self: SectionObject, config: SliderConfig) -> SliderElement,
 	AddToggle: (self: SectionObject, config: ToggleConfig) -> ToggleElement,
@@ -3309,8 +3324,9 @@ function ColorPickerElement.new(section, config: ColorPickerConfig): ColorPicker
 				window._currentColorPicker:_Close()
 			end
 			window._currentColorPicker = self
-			window.ColorPickerShadow.Visible = true
-			Tween(window.ColorPickerShadow, 0.35, { BackgroundTransparency = 0.5 }, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+			local shadow = window:_GetPickerShadow(section)
+			shadow.Visible = true
+			Tween(shadow, 0.35, { BackgroundTransparency = 0.5 }, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
 			local targetPos = calculatePickerPosition()
 			pickerPanel.Position = targetPos
 			pickerPanel.Visible = true
@@ -3321,9 +3337,10 @@ function ColorPickerElement.new(section, config: ColorPickerConfig): ColorPicker
 			if window._currentColorPicker == self then
 				window._currentColorPicker = nil
 			end
-			Tween(window.ColorPickerShadow, 0.25, { BackgroundTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+			local shadow = window:_GetPickerShadow(section)
+			Tween(shadow, 0.25, { BackgroundTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
 			task.delay(0.25, function()
-				window.ColorPickerShadow.Visible = false
+				shadow.Visible = false
 			end)
 			Tween(pickerPanel, 0.25, { Size = UD2_N(0, 0, 0, 0) })
 			Tween(pickerStroke, 0.25, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
@@ -3355,6 +3372,7 @@ function ColorPickerElement.new(section, config: ColorPickerConfig): ColorPicker
 	self.Preview = preview
 	self.Title = title
 	self.Window = window
+	self._section = section
 	self._pickerPanel = pickerPanel
 	self._pickerStroke = pickerStroke
 	self._pickerOpen = function() return pickerOpen end
@@ -3379,9 +3397,10 @@ function ColorPickerElement:_Close()
 		self.Window._currentColorPicker = nil
 	end
 
-	Tween(self.Window.ColorPickerShadow, 0.25, { BackgroundTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+	local shadow = self.Window:_GetPickerShadow(self._section)
+	Tween(shadow, 0.25, { BackgroundTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
 	task.delay(0.25, function()
-		self.Window.ColorPickerShadow.Visible = false
+		shadow.Visible = false
 	end)
 
 	Tween(self._pickerPanel, 0.25, { Size = UD2_N(0, 0, 0, 0) })
@@ -3425,9 +3444,12 @@ function Section.new(tab, config: SectionConfig, parent: Frame?): SectionObject
 	self.Title = config.Title or "Section"
 	self.Visible = true
 	self.Elements = {}
+	self._popout = nil
+	SectionOrder += 1
 
 	self.Frame = Create("Frame", {
 		Name = "Section_" .. self.Title,
+		LayoutOrder = SectionOrder,
 		Size = UD2_N(1, 0, 0, 36),
 		BackgroundColor3 = COLORS.Section,
 		BorderSizePixel = 0,
@@ -3449,7 +3471,7 @@ function Section.new(tab, config: SectionConfig, parent: Frame?): SectionObject
 	AddCorner(self.Header, 10)
 
 	self.HeaderLabel = Create("TextLabel", {
-		Size = UD2_N(1, -40, 1, 0),
+		Size = UD2_N(1, -68, 1, 0),
 		Position = UD2_N(0, 12, 0, 0),
 		BackgroundTransparency = 1,
 		Text = self.Title,
@@ -3470,6 +3492,46 @@ function Section.new(tab, config: SectionConfig, parent: Frame?): SectionObject
 		Font = Enum.Font.GothamBold,
 		Parent = self.Header,
 	})
+
+	self.PopoutButton = Create("TextButton", {
+		Name = "PopoutButton",
+		Size = UD2_N(0, 15, 0, 15),
+		Position = UD2_N(1, -51, 0.5, -7),
+		BackgroundTransparency = 1,
+		Text = "",
+		AutoButtonColor = false,
+		Parent = self.Header,
+	})
+	local popoutBack = Create("Frame", {
+		Size = UD2_N(0, 6, 0, 6),
+		Position = UD2_N(0, 6, 0, 3),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Parent = self.PopoutButton,
+	})
+	AddCorner(popoutBack, 1)
+	local popoutBackStroke = AddStroke(popoutBack, COLORS.TextDim, 1)
+	local popoutFront = Create("Frame", {
+		Size = UD2_N(0, 6, 0, 6),
+		Position = UD2_N(0, 3, 0, 6),
+		BackgroundColor3 = COLORS.SectionHeader,
+		BorderSizePixel = 0,
+		ZIndex = 2,
+		Parent = self.PopoutButton,
+	})
+	AddCorner(popoutFront, 1)
+	local popoutFrontStroke = AddStroke(popoutFront, COLORS.TextDim, 1)
+	self._maid:Add(self.PopoutButton.MouseEnter:Connect(function()
+		popoutBackStroke.Color = COLORS.Accent
+		popoutFrontStroke.Color = COLORS.Accent
+	end))
+	self._maid:Add(self.PopoutButton.MouseLeave:Connect(function()
+		popoutBackStroke.Color = COLORS.TextDim
+		popoutFrontStroke.Color = COLORS.TextDim
+	end))
+	self._maid:Add(self.PopoutButton.MouseButton1Click:Connect(function()
+		self:Popout()
+	end))
 
 	self.ContentHolder = Create("Frame", {
 		Name = "ContentHolder",
@@ -3530,7 +3592,45 @@ end
 
 function Section:SetVisible(visible: boolean)
 	self.Visible = visible
-	self.Frame.Visible = visible
+	if self._popout then
+		self._popout:SetVisible(visible)
+	else
+		self.Frame.Visible = visible
+	end
+end
+
+function Section:Popout(config: PopoutConfig?)
+	if not self.Frame or not self.Frame.Parent then
+		return
+	end
+	local existing = self._popout
+	if existing then
+		if config then
+			existing:Configure(config)
+		end
+		existing:BringToFront()
+		return
+	end
+	Popout.new(self, config)
+end
+
+function Section:Dock()
+	local popout = self._popout
+	if popout then
+		popout:Destroy(true)
+	end
+end
+
+function Section:TogglePopout(config: PopoutConfig?)
+	if self._popout then
+		self:Dock()
+	else
+		self:Popout(config)
+	end
+end
+
+function Section:IsPoppedOut(): boolean
+	return self._popout ~= nil
 end
 
 function Section:_CreateElementFrame(config, height, ElementType)
@@ -3622,10 +3722,588 @@ function Section:Destroy()
 			element:Destroy()
 		end
 	end
+	if self._popout then
+		self._popout:Destroy(false)
+	end
 	self._maid:Destroy()
 	if self.Frame and self.Frame.Parent then
 		self.Frame:Destroy()
 	end
+end
+
+local POPOUT_MIN_WIDTH = 150
+local POPOUT_MIN_HEIGHT = 84
+local POPOUT_TOP_INSET = 20
+local POPOUT_BOTTOM_INSET = 20
+local POPOUT_SIDE_INSET = 12
+local POPOUT_CORNER = 14
+local POPOUT_DOUBLE_CLICK = 0.35
+local POPOUT_COMPACT_PADDING = 4
+
+local function GetViewportSize(window)
+	local size = window.ScreenGui.AbsoluteSize
+	if size.X <= 0 or size.Y <= 0 then
+		local camera = workspace.CurrentCamera
+		size = camera and camera.ViewportSize or Vector2.new(1280, 720)
+	end
+	return size
+end
+
+local function ResolveVector2(value, basis)
+	if typeof(value) == "Vector2" then
+		return value
+	end
+	if typeof(value) == "UDim2" then
+		return Vector2.new(value.X.Scale * basis.X + value.X.Offset, value.Y.Scale * basis.Y + value.Y.Offset)
+	end
+	return nil
+end
+
+local function IsPrimaryInput(input)
+	local inputType = input.UserInputType
+	return inputType == Enum.UserInputType.MouseButton1 or inputType == Enum.UserInputType.Touch
+end
+
+function Popout.new(section, config)
+	config = config or {}
+	local window = section.Window
+	local layer = window:_GetPopoutLayer()
+	local self = setmetatable({}, Popout)
+	local maid = Maid.new()
+	self.Section = section
+	self.Window = window
+	self.Layer = layer
+	self.Content = section.ContentHolder
+	self._maid = maid
+	self._lastClick = 0
+	self._hover = nil
+	self._interaction = nil
+	self._destroyed = false
+
+	for _, element in section.Elements do
+		if element._pickerOpen and element._pickerOpen() then
+			element:_Close()
+		end
+	end
+
+	local viewport = GetViewportSize(window)
+	local saved = PopoutMemory[section]
+	local docked = section.Frame.AbsoluteSize
+	local width = docked.X > 0 and docked.X or 240
+	local height = nil
+	local autoHeight = true
+	if saved then
+		width = saved.W
+		height = saved.H
+		autoHeight = saved.AutoHeight
+	end
+	local sizeOverride = ResolveVector2(config.Size, viewport)
+	if sizeOverride then
+		width = sizeOverride.X
+		height = sizeOverride.Y
+		autoHeight = false
+	end
+	if not height then
+		height = POPOUT_TOP_INSET + POPOUT_BOTTOM_INSET + math.max(self.Content.AbsoluteSize.Y, 36)
+	end
+	self.AutoHeight = autoHeight
+
+	local x, y
+	local positionOverride = ResolveVector2(config.Position, viewport)
+	if positionOverride then
+		x, y = positionOverride.X, positionOverride.Y
+	elseif saved then
+		x, y = saved.X, saved.Y
+	elseif section.Tab.Active and window.IsOpen then
+		local origin = section.Frame.AbsolutePosition - layer.Frame.AbsolutePosition
+		x, y = origin.X + 14, origin.Y + 14
+	else
+		x = (viewport.X - width) / 2 + #layer.Popouts * 24
+		y = (viewport.Y - height) / 2 + #layer.Popouts * 24
+	end
+
+	layer.TopZ += 1
+	local frame = Create("Frame", {
+		Name = "Popout_" .. section.Title,
+		Size = UD2_N(0, width, 0, height),
+		Position = UD2_N(0, x, 0, y),
+		BackgroundColor3 = COLORS.Section,
+		BorderSizePixel = 0,
+		Active = true,
+		ZIndex = layer.TopZ,
+		Visible = section.Visible,
+		Parent = layer.Frame,
+	})
+	maid:Add(frame)
+	AddCorner(frame, POPOUT_CORNER)
+	AddStroke(frame, COLORS.Border, 1)
+	self.Frame = frame
+
+	self.Scroll = Create("ScrollingFrame", {
+		Name = "PopoutScroll",
+		Size = UD2_N(1, -POPOUT_SIDE_INSET * 2, 1, -(POPOUT_TOP_INSET + POPOUT_BOTTOM_INSET)),
+		Position = UD2_N(0, POPOUT_SIDE_INSET, 0, POPOUT_TOP_INSET),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 3,
+		ScrollBarImageColor3 = COLORS.Accent,
+		CanvasSize = UD2_N(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		Parent = frame,
+	})
+
+	self.PickerShadow = Create("Frame", {
+		Name = "PickerShadow",
+		Size = UD2_N(1, 0, 1, 0),
+		BackgroundColor3 = C3_FRGB(0, 0, 0),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ZIndex = 50,
+		Visible = false,
+		Parent = frame,
+	})
+	AddCorner(self.PickerShadow, POPOUT_CORNER)
+	local shadowButton = Create("TextButton", {
+		Size = UD2_N(1, 0, 1, 0),
+		BackgroundTransparency = 1,
+		Text = "",
+		ZIndex = 51,
+		Parent = self.PickerShadow,
+	})
+	maid:Add(shadowButton.MouseButton1Click:Connect(function()
+		if window._currentColorPicker then
+			window._currentColorPicker:_Close()
+		end
+	end))
+
+	local dragLine = Create("Frame", {
+		Name = "DragIndicator",
+		Size = UD2_N(0, 32, 0, 3),
+		Position = UD2_N(0.5, -16, 0, 8),
+		BackgroundColor3 = COLORS.TextMuted,
+		BorderSizePixel = 0,
+		ZIndex = 2,
+		Parent = frame,
+	})
+	AddCorner(dragLine, 2)
+
+	local arcAnchor = Create("Frame", {
+		Name = "ResizeIndicators",
+		Size = UD2_N(0, 0, 0, 0),
+		Position = UD2_N(1, -POPOUT_CORNER, 1, -POPOUT_CORNER),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ZIndex = 2,
+		Parent = frame,
+	})
+	local vBar = Create("Frame", {
+		Name = "ResizeWidthIndicator",
+		Size = UD2_N(0, 3, 0, 16),
+		Position = UD2_N(0, 8, 0, -19),
+		BackgroundColor3 = COLORS.TextMuted,
+		BorderSizePixel = 0,
+		ZIndex = 2,
+		Parent = arcAnchor,
+	})
+	AddCorner(vBar, 2)
+	local hBar = Create("Frame", {
+		Name = "ResizeHeightIndicator",
+		Size = UD2_N(0, 16, 0, 3),
+		Position = UD2_N(0, -19, 0, 8),
+		BackgroundColor3 = COLORS.TextMuted,
+		BorderSizePixel = 0,
+		ZIndex = 2,
+		Parent = arcAnchor,
+	})
+	AddCorner(hBar, 2)
+	local arcClip = Create("Frame", {
+		Name = "ResizeCornerIndicator",
+		Size = UD2_N(0, 11, 0, 11),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+		ZIndex = 2,
+		Parent = arcAnchor,
+	})
+	local arcCircle = Create("Frame", {
+		Size = UD2_N(0, 16, 0, 16),
+		Position = UD2_N(0, -8, 0, -8),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ZIndex = 2,
+		Parent = arcClip,
+	})
+	AddCorner(arcCircle, 8)
+	local arcStroke = AddStroke(arcCircle, COLORS.TextMuted, 3)
+
+	self._indicators = {
+		Drag = function(color)
+			dragLine.BackgroundColor3 = color
+		end,
+		ResizeX = function(color)
+			vBar.BackgroundColor3 = color
+		end,
+		ResizeY = function(color)
+			hBar.BackgroundColor3 = color
+		end,
+		ResizeXY = function(color)
+			arcStroke.Color = color
+		end,
+	}
+
+	local function makeHit(name, kind, size, anchor, position)
+		local hit = Create("TextButton", {
+			Name = name,
+			Size = size,
+			AnchorPoint = anchor,
+			Position = position,
+			BackgroundTransparency = 1,
+			Text = "",
+			AutoButtonColor = false,
+			ZIndex = 4,
+			Parent = frame,
+		})
+		maid:Add(hit.MouseEnter:Connect(function()
+			self._hover = kind
+			self:_Paint()
+		end))
+		maid:Add(hit.MouseLeave:Connect(function()
+			if self._hover == kind then
+				self._hover = nil
+				self:_Paint()
+			end
+		end))
+		maid:Add(hit.InputBegan:Connect(function(input)
+			if IsPrimaryInput(input) then
+				self:_OnPress(kind, input)
+			end
+		end))
+		return hit
+	end
+
+	makeHit("DragHit", "Drag", UD2_N(0, 72, 0, 20), Vector2.new(0.5, 0), UD2_N(0.5, 0, 0, 0))
+	makeHit("ResizeWidthHit", "ResizeX", UD2_N(0, 12, 0, 36), Vector2.new(1, 1), UD2_N(1, 0, 1, -20))
+	makeHit("ResizeHeightHit", "ResizeY", UD2_N(0, 36, 0, 12), Vector2.new(1, 1), UD2_N(1, -20, 1, 0))
+	makeHit("ResizeCornerHit", "ResizeXY", UD2_N(0, 20, 0, 20), Vector2.new(1, 1), UD2_N(1, 0, 1, 0))
+
+	local dockButton = Create("TextButton", {
+		Name = "DockButton",
+		Size = UD2_N(0, 15, 0, 15),
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UD2_N(1, -POPOUT_SIDE_INSET - 2, 0, 3),
+		BackgroundTransparency = 1,
+		Text = "",
+		AutoButtonColor = false,
+		ZIndex = 5,
+		Parent = frame,
+	})
+	local dockBack = Create("Frame", {
+		Size = UD2_N(0, 6, 0, 6),
+		Position = UD2_N(0, 6, 0, 3),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Parent = dockButton,
+	})
+	AddCorner(dockBack, 1)
+	local dockBackStroke = AddStroke(dockBack, COLORS.TextMuted, 1)
+	local dockFront = Create("Frame", {
+		Size = UD2_N(0, 6, 0, 6),
+		Position = UD2_N(0, 3, 0, 6),
+		BackgroundColor3 = COLORS.Section,
+		BorderSizePixel = 0,
+		ZIndex = 2,
+		Parent = dockButton,
+	})
+	AddCorner(dockFront, 1)
+	local dockFrontStroke = AddStroke(dockFront, COLORS.TextMuted, 1)
+	maid:Add(dockButton.MouseEnter:Connect(function()
+		dockBackStroke.Color = COLORS.Accent
+		dockFrontStroke.Color = COLORS.Accent
+	end))
+	maid:Add(dockButton.MouseLeave:Connect(function()
+		dockBackStroke.Color = COLORS.TextMuted
+		dockFrontStroke.Color = COLORS.TextMuted
+	end))
+	maid:Add(dockButton.MouseButton1Click:Connect(function()
+		section:Dock()
+	end))
+
+	local placeholder = Create("TextButton", {
+		Name = "PopoutPlaceholder_" .. section.Title,
+		Size = UD2_N(1, 0, 0, 30),
+		BackgroundColor3 = COLORS.Section,
+		BorderSizePixel = 0,
+		Text = "",
+		AutoButtonColor = false,
+		LayoutOrder = section.Frame.LayoutOrder,
+		Visible = section.Visible,
+		Parent = section.Frame.Parent,
+	})
+	maid:Add(placeholder)
+	AddCorner(placeholder, 10)
+	AddStroke(placeholder, COLORS.Border, 1)
+	Create("TextLabel", {
+		Size = UD2_N(1, -64, 1, 0),
+		Position = UD2_N(0, 12, 0, 0),
+		BackgroundTransparency = 1,
+		Text = section.Title .. " - popped out",
+		TextColor3 = COLORS.TextDim,
+		TextSize = 12,
+		Font = Enum.Font.GothamMedium,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Parent = placeholder,
+	})
+	Create("TextLabel", {
+		Size = UD2_N(0, 40, 1, 0),
+		Position = UD2_N(1, -50, 0, 0),
+		BackgroundTransparency = 1,
+		Text = "Dock",
+		TextColor3 = COLORS.Accent,
+		TextSize = 12,
+		Font = Enum.Font.GothamBold,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Parent = placeholder,
+	})
+	maid:Add(placeholder.MouseEnter:Connect(function()
+		Tween(placeholder, 0.15, { BackgroundColor3 = COLORS.SectionHeader })
+	end))
+	maid:Add(placeholder.MouseLeave:Connect(function()
+		Tween(placeholder, 0.15, { BackgroundColor3 = COLORS.Section })
+	end))
+	maid:Add(placeholder.MouseButton1Click:Connect(function()
+		section:Dock()
+	end))
+	self.Placeholder = placeholder
+
+	local content = self.Content
+	local padding = content:FindFirstChildOfClass("UIPadding")
+	local list = content:FindFirstChildOfClass("UIListLayout")
+	self._padding = padding
+	self._list = list
+	self._restore = {
+		Parent = content.Parent,
+		Position = content.Position,
+		Size = content.Size,
+		Padding = padding and {
+			Top = padding.PaddingTop,
+			Bottom = padding.PaddingBottom,
+			Left = padding.PaddingLeft,
+			Right = padding.PaddingRight,
+		},
+		ListPadding = list and list.Padding,
+	}
+	content.Parent = self.Scroll
+	content.Position = UD2_N(0, 0, 0, 0)
+	if padding then
+		local compact = UDim.new(0, POPOUT_COMPACT_PADDING)
+		padding.PaddingTop = compact
+		padding.PaddingBottom = compact
+		padding.PaddingLeft = compact
+		padding.PaddingRight = compact
+	end
+	if list then
+		list.Padding = UDim.new(list.Padding.Scale, math.min(list.Padding.Offset, POPOUT_COMPACT_PADDING))
+	end
+
+	section._popout = self
+	section.Frame.Visible = false
+	table.insert(layer.Popouts, self)
+	self:_Apply(x, y, width, height)
+	self:_Paint()
+
+	maid:Add(content:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		self:_FitHeight()
+	end))
+
+	return self
+end
+
+function Popout:_Apply(x, y, w, h)
+	local viewport = GetViewportSize(self.Window)
+	w = math.clamp(math.floor(w + 0.5), math.min(POPOUT_MIN_WIDTH, viewport.X), viewport.X)
+	h = math.clamp(math.floor(h + 0.5), math.min(POPOUT_MIN_HEIGHT, viewport.Y), viewport.Y)
+	x = math.clamp(math.floor(x + 0.5), 0, math.max(0, viewport.X - w))
+	y = math.clamp(math.floor(y + 0.5), 0, math.max(0, viewport.Y - h))
+	self.X, self.Y, self.W, self.H = x, y, w, h
+	self.Frame.Position = UD2_N(0, x, 0, y)
+	self.Frame.Size = UD2_N(0, w, 0, h)
+end
+
+function Popout:_FitHeight()
+	if not self.AutoHeight or self._destroyed then
+		return
+	end
+	local contentHeight = self.Content.AbsoluteSize.Y
+	if contentHeight <= 0 then
+		return
+	end
+	local viewport = GetViewportSize(self.Window)
+	local desired = POPOUT_TOP_INSET + POPOUT_BOTTOM_INSET + contentHeight
+	local available = math.max(viewport.Y - self.Y, POPOUT_MIN_HEIGHT)
+	self:_Apply(self.X, self.Y, self.W, math.min(desired, available))
+end
+
+function Popout:_Remember()
+	PopoutMemory[self.Section] = {
+		X = self.X,
+		Y = self.Y,
+		W = self.W,
+		H = self.H,
+		AutoHeight = self.AutoHeight,
+	}
+end
+
+function Popout:_Paint()
+	local active = self._interaction and self._interaction.Kind or self._hover
+	for kind, paint in self._indicators do
+		paint(kind == active and COLORS.Accent or COLORS.TextMuted)
+	end
+end
+
+function Popout:BringToFront()
+	local layer = self.Layer
+	if self.Frame.ZIndex == layer.TopZ then
+		return
+	end
+	layer.TopZ += 1
+	self.Frame.ZIndex = layer.TopZ
+end
+
+function Popout:SetVisible(visible: boolean)
+	self.Frame.Visible = visible
+	self.Placeholder.Visible = visible
+end
+
+function Popout:Configure(config)
+	local viewport = GetViewportSize(self.Window)
+	local size = ResolveVector2(config.Size, viewport)
+	local position = ResolveVector2(config.Position, viewport)
+	if size then
+		self.AutoHeight = false
+	end
+	self:_Apply(
+		position and position.X or self.X,
+		position and position.Y or self.Y,
+		size and size.X or self.W,
+		size and size.Y or self.H
+	)
+	self:_Remember()
+end
+
+function Popout:_OnPress(kind, input)
+	if self._interaction or self._destroyed then
+		return
+	end
+	if kind == "Drag" then
+		local now = os.clock()
+		if now - self._lastClick <= POPOUT_DOUBLE_CLICK then
+			self._lastClick = 0
+			self.Section:Dock()
+			return
+		end
+		self._lastClick = now
+	end
+	self:BringToFront()
+	if kind == "ResizeY" or kind == "ResizeXY" then
+		self.AutoHeight = false
+	end
+
+	local origin = Vector2.new(input.Position.X, input.Position.Y)
+	local startX, startY, startW, startH = self.X, self.Y, self.W, self.H
+	local interaction = { Kind = kind, Moved = false, Connections = {} }
+	self._interaction = interaction
+
+	interaction.Connections[1] = UserInputService.InputChanged:Connect(function(changed)
+		local inputType = changed.UserInputType
+		if inputType ~= Enum.UserInputType.MouseMovement and inputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		local delta = Vector2.new(changed.Position.X, changed.Position.Y) - origin
+		if delta.Magnitude > 4 then
+			interaction.Moved = true
+		end
+		if kind == "Drag" then
+			self:_Apply(startX + delta.X, startY + delta.Y, startW, startH)
+			return
+		end
+		local viewport = GetViewportSize(self.Window)
+		local minW = math.min(POPOUT_MIN_WIDTH, viewport.X)
+		local minH = math.min(POPOUT_MIN_HEIGHT, viewport.Y)
+		local w, h = startW, startH
+		if kind ~= "ResizeY" then
+			w = math.clamp(startW + delta.X, minW, math.max(minW, viewport.X - startX))
+		end
+		if kind ~= "ResizeX" then
+			h = math.clamp(startH + delta.Y, minH, math.max(minH, viewport.Y - startY))
+		end
+		self:_Apply(startX, startY, w, h)
+	end)
+	interaction.Connections[2] = UserInputService.InputEnded:Connect(function(ended)
+		if IsPrimaryInput(ended) then
+			self:_EndInteraction()
+		end
+	end)
+	self:_Paint()
+end
+
+function Popout:_EndInteraction()
+	local interaction = self._interaction
+	if not interaction then
+		return
+	end
+	self._interaction = nil
+	for _, connection in interaction.Connections do
+		connection:Disconnect()
+	end
+	if interaction.Moved then
+		self._lastClick = 0
+	end
+	self:_Remember()
+	self:_Paint()
+end
+
+function Popout:Destroy(restore: boolean?)
+	if self._destroyed then
+		return
+	end
+	local section = self.Section
+	for _, element in section.Elements do
+		if element._pickerOpen and element._pickerOpen() then
+			element:_Close()
+		end
+	end
+	self:_EndInteraction()
+	self._destroyed = true
+	self:_Remember()
+
+	local popouts = self.Layer.Popouts
+	local index = table.find(popouts, self)
+	if index then
+		table.remove(popouts, index)
+	end
+
+	if restore then
+		local content = self.Content
+		local original = self._restore
+		content.Parent = original.Parent
+		content.Position = original.Position
+		content.Size = original.Size
+		if self._padding and original.Padding then
+			self._padding.PaddingTop = original.Padding.Top
+			self._padding.PaddingBottom = original.Padding.Bottom
+			self._padding.PaddingLeft = original.Padding.Left
+			self._padding.PaddingRight = original.Padding.Right
+		end
+		if self._list and original.ListPadding then
+			self._list.Padding = original.ListPadding
+		end
+		section.Frame.Visible = section.Visible
+	end
+
+	section._popout = nil
+	self._maid:Destroy()
 end
 
 local function NewColumnSection(column: ColumnObject, config: SectionConfig): SectionObject
@@ -4217,6 +4895,7 @@ function Window:Destroy()
 	for _, tab in self.Tabs do
 		tab:Destroy()
 	end
+	self:_DestroyPopoutLayer()
 	self:_DestroyAllToasts()
 	self._maid:Destroy()
 	if not self.Parent and self.ScreenGui and self.ScreenGui.Parent then
@@ -4230,6 +4909,83 @@ function Window:Destroy()
 			break
 		end
 	end
+end
+
+function Window:_GetPopoutLayer()
+	local existing = self._popoutLayer
+	if existing then
+		return existing
+	end
+	local maid = Maid.new()
+	local frame = Create("Frame", {
+		Name = "PopoutLayer",
+		Size = UD2_N(1, 0, 1, 0),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ZIndex = 900,
+		Parent = self.ScreenGui,
+	})
+	maid:Add(frame)
+	local layer = { Frame = frame, Maid = maid, Popouts = {}, TopZ = 0 }
+
+	maid:Add(self.ScreenGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		for _, popout in table.clone(layer.Popouts) do
+			popout:_Apply(popout.X, popout.Y, popout.W, popout.H)
+		end
+	end))
+
+	maid:Add(UserInputService.InputBegan:Connect(function(input)
+		if #layer.Popouts == 0 or not IsPrimaryInput(input) then
+			return
+		end
+		local point
+		if input.UserInputType == Enum.UserInputType.Touch then
+			local inset = GuiService:GetGuiInset()
+			point = Vector2.new(input.Position.X + inset.X, input.Position.Y + inset.Y)
+		else
+			point = UserInputService:GetMouseLocation()
+		end
+		local hit = nil
+		local hitZ = -math.huge
+		for _, popout in layer.Popouts do
+			local popoutFrame = popout.Frame
+			if popoutFrame.Visible and popoutFrame.ZIndex > hitZ then
+				local position = popoutFrame.AbsolutePosition
+				local size = popoutFrame.AbsoluteSize
+				if point.X >= position.X and point.X <= position.X + size.X
+					and point.Y >= position.Y and point.Y <= position.Y + size.Y then
+					hit = popout
+					hitZ = popoutFrame.ZIndex
+				end
+			end
+		end
+		if hit then
+			hit:BringToFront()
+		end
+	end))
+
+	self._popoutLayer = layer
+	return layer
+end
+
+function Window:_DestroyPopoutLayer()
+	local layer = self._popoutLayer
+	if not layer then
+		return
+	end
+	self._popoutLayer = nil
+	for _, popout in table.clone(layer.Popouts) do
+		popout:Destroy(false)
+	end
+	layer.Maid:Destroy()
+end
+
+function Window:_GetPickerShadow(section)
+	local popout = section and section._popout
+	if popout and popout.PickerShadow and popout.PickerShadow.Parent then
+		return popout.PickerShadow
+	end
+	return self.ColorPickerShadow
 end
 
 function Window:_UpdateTabBarWidth()
@@ -5377,6 +6133,7 @@ function Library:Unload()
 		end
 	end
 	table.clear(ActiveWindows)
+	table.clear(PopoutMemory)
 
 	for _, item in (GlobalMaidList) do
 		if typeof(item) == "RBXScriptConnection" then
