@@ -19,6 +19,7 @@ local ActiveWindows = {}
 local GlobalMaidList = {}
 local PopoutMemory = setmetatable({}, { __mode = "k" })
 local SectionOrder = 0
+local NotifyGui
 
 local COLORS = {
 	Background = Color3.fromRGB(25, 25, 35),
@@ -5569,8 +5570,8 @@ end
 
 function Library:Notify(config: NotifyConfig)
 	config = config or {}
-	local notifGui = playerGui:FindFirstChild("NotificationUI")
-	if not notifGui then
+	local notifGui = NotifyGui
+	if not notifGui or not notifGui.Parent then
 		notifGui = Create("ScreenGui", {
 			Name = uuid(),
 			ResetOnSpawn = false,
@@ -5578,6 +5579,7 @@ function Library:Notify(config: NotifyConfig)
 			ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 			Parent = playerGui,
 		})
+		NotifyGui = notifGui
 		local container = Create("Frame", {
 			Name = "NotificationContainer",
 			Size = UD2_N(0, 320, 0, 0),
@@ -6148,9 +6150,9 @@ function Library:Unload()
 
 	local ok = pcall(function()
 		if playerGui then
-			local notifGui = playerGui:FindFirstChild("NotificationUI")
-			if notifGui then
-				notifGui:Destroy()
+			if NotifyGui then
+				NotifyGui:Destroy()
+				NotifyGui = nil
 			end
 		end
 	end)
